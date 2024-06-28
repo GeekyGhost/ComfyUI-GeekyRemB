@@ -1,4 +1,7 @@
 # ComfyUI-GeekyRemB
+
+WIP - Some features not fully functional (watershed), but the majority are fully operational.  
+
 Custom Background Remover for ComfyUI to address some issues I've encountered with different background removers. 
 
 GeekyRemb: Advanced Background Removal Node
