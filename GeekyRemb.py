@@ -3,8 +3,10 @@ from rembg import remove, new_session
 from PIL import Image, ImageOps, ImageFilter
 import torch
 import logging
-import concurrent.futures
 import cv2
+import tqdm
+
+logging.basicConfig(level=logging.INFO)
 
 def tensor2pil(image):
     return Image.fromarray(np.clip(255. * image.cpu().numpy().squeeze(), 0, 255).astype(np.uint8))
@@ -22,7 +24,7 @@ class GeekyRemb:
         return {
             "required": {
                 "images": ("IMAGE",),
-                "model": (["u2net", "u2netp", "u2net_human_seg", "silueta", "isnet-general-use", "isnet-anime", "briarmbg", "custom"],),
+                "model": (["u2net", "u2netp", "u2net_human_seg", "silueta", "isnet-general-use", "isnet-anime", "briarmbg", "custom", "isnet-anime-l", "isnet-pro"],),
                 "alpha_matting": ("BOOLEAN", {"default": False}),
                 "alpha_matting_foreground_threshold": ("INT", {"default": 240, "min": 0, "max": 255, "step": 1}),
                 "alpha_matting_background_threshold": ("INT", {"default": 10, "min": 0, "max": 255, "step": 1}),
@@ -139,10 +141,6 @@ class GeekyRemb:
         mask = 255 - cv2.threshold(mask, threshold, 255, cv2.THRESH_BINARY)[1]
         return mask
 
-        mask = cv2.inRange(hsv, lower, upper)
-        mask = 255 - cv2.threshold(mask, threshold, 255, cv2.THRESH_BINARY)[1]
-        return mask
-
     def despill(self, image, mask, color, strength):
         if color == "green":
             other_channels = [0, 2]  # Red and Blue channels
@@ -196,7 +194,7 @@ class GeekyRemb:
 
         def process_single_image(image, mask_single=None):
             pil_image = tensor2pil(image)
-            original_image = np.array(pil_image)
+            original_image = np.array(pil_image, dtype=np.float32)  # Use float32 for better precision
             
             # Process input mask if provided
             if mask_single is not None:
@@ -274,20 +272,29 @@ class GeekyRemb:
                 if despill and chroma_key in ["green", "blue", "red"]:
                     result = self.despill(result, final_mask, chroma_key, despill_strength)
 
+            result = np.clip(result, 0, 255).astype(np.uint8)
             return pil2tensor(Image.fromarray(result))
 
         try:
-            if mask is not None:
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    processed_images = list(executor.map(process_single_image, images, mask))
-            else:
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    processed_images = list(executor.map(process_single_image, images, [None] * len(images)))
+            processed_images = []
+            total_images = images.shape[0]
+            logging.info(f"Processing {total_images} images")
+            
+            for i in tqdm.tqdm(range(total_images), desc="Processing images"):
+                single_image = images[i:i+1]
+                single_mask = mask[i:i+1] if mask is not None else None
+                processed_image = process_single_image(single_image, single_mask)
+                processed_images.append(processed_image)
+                
+                if (i + 1) % 10 == 0 or (i + 1) == total_images:
+                    logging.info(f"Processed {i + 1}/{total_images} images")
+
+            logging.info("Finished processing all images")
+            return (torch.cat(processed_images, dim=0),)
+        
         except Exception as e:
             logging.error(f"Error during background removal: {str(e)}")
             raise
-
-        return (torch.cat(processed_images, dim=0),)
 
 NODE_CLASS_MAPPINGS = {
     "Geeky Remb": GeekyRemb
