@@ -1,4 +1,4 @@
-Save the python fuile into your custom nodes folder and run ComfyUI. Use the one labled v2. 
+Save the python file into your custom nodes folder and run ComfyUI. Use the one labled v2. 
 
 # ComfyUI-GeekyRemB v2 (Pretty much complete used Claude Sonnet to help me refine v1 and make v2) 
 
