@@ -55,6 +55,9 @@ class GeekyRemB:
                 "brightness": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
                 "contrast": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
                 "saturation": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
+                "scale": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 5.0, "step": 0.1}),
+                "x_position": ("INT", {"default": 0, "min": -10000, "max": 10000, "step": 1}),
+                "y_position": ("INT", {"default": 0, "min": -10000, "max": 10000, "step": 1}),
             }
         }
 
@@ -86,7 +89,7 @@ class GeekyRemB:
                           background_images=None, background_color="#000000", invert_mask=False, feather_amount=0,
                           edge_detection=False, edge_thickness=1, edge_color="#FFFFFF", shadow=False, 
                           shadow_blur=5, shadow_opacity=0.5, color_adjustment=False, brightness=1.0, 
-                          contrast=1.0, saturation=1.0):
+                          contrast=1.0, saturation=1.0, scale=1.0, x_position=0, y_position=0):
         if self.session is None or self.session.model_name != model:
             self.session = new_session(model)
 
@@ -142,18 +145,35 @@ class GeekyRemB:
                 else:
                     result = Image.new("RGBA", pil_image.size, (0, 0, 0, 0))
 
-            result.paste(pil_image, (0, 0), Image.fromarray(final_mask))
+            # Scale and position the foreground image
+            fg_image = Image.fromarray(original_image)
+            fg_mask = Image.fromarray(final_mask)
+            
+            new_size = (int(fg_image.width * scale), int(fg_image.height * scale))
+            fg_image = fg_image.resize(new_size, Image.LANCZOS)
+            fg_mask = fg_mask.resize(new_size, Image.LANCZOS)
+
+            # Calculate the position to paste the scaled image
+            paste_x = x_position + (result.width - fg_image.width) // 2
+            paste_y = y_position + (result.height - fg_image.height) // 2
+
+            # Create a new image with the same size as the background
+            scaled_fg = Image.new("RGBA", result.size, (0, 0, 0, 0))
+            scaled_fg.paste(fg_image, (paste_x, paste_y), fg_mask)
+
+            result = Image.alpha_composite(result, scaled_fg)
 
             if edge_detection:
-                edge_mask = cv2.Canny(final_mask, 100, 200)
+                edge_mask = cv2.Canny(np.array(fg_mask), 100, 200)
                 edge_mask = cv2.dilate(edge_mask, np.ones((edge_thickness, edge_thickness), np.uint8), iterations=1)
-                edge_overlay = Image.new("RGBA", pil_image.size, (0, 0, 0, 0))
-                edge_overlay.paste(Image.new("RGB", pil_image.size, edge_color), (0, 0), Image.fromarray(edge_mask))
+                edge_overlay = Image.new("RGBA", result.size, (0, 0, 0, 0))
+                edge_overlay.paste(Image.new("RGB", fg_image.size, edge_color), (paste_x, paste_y), Image.fromarray(edge_mask))
                 result = Image.alpha_composite(result, edge_overlay)
 
             if shadow:
-                shadow_mask = Image.fromarray(final_mask).filter(ImageFilter.GaussianBlur(shadow_blur))
-                shadow_image = Image.new("RGBA", pil_image.size, (0, 0, 0, int(255 * shadow_opacity)))
+                shadow_mask = fg_mask.filter(ImageFilter.GaussianBlur(shadow_blur))
+                shadow_image = Image.new("RGBA", result.size, (0, 0, 0, 0))
+                shadow_image.paste((0, 0, 0, int(255 * shadow_opacity)), (paste_x, paste_y), shadow_mask)
                 result = Image.alpha_composite(result, shadow_image.filter(ImageFilter.GaussianBlur(shadow_blur)))
 
             if color_adjustment:
@@ -167,7 +187,7 @@ class GeekyRemB:
             if output_format == "RGB":
                 result = result.convert("RGB")
 
-            return pil2tensor(result), pil2tensor(Image.fromarray(final_mask))
+            return pil2tensor(result), pil2tensor(fg_mask)
 
         try:
             batch_size = images.shape[0]
