@@ -1,6 +1,6 @@
 import numpy as np
 from rembg import remove, new_session
-from PIL import Image, ImageOps, ImageFilter
+from PIL import Image, ImageOps, ImageFilter, ImageEnhance
 import torch
 import logging
 import cv2
@@ -12,12 +12,11 @@ def tensor2pil(image):
     return Image.fromarray(np.clip(255. * image.cpu().numpy().squeeze(), 0, 255).astype(np.uint8))
 
 def pil2tensor(image):
-    # Convert PIL image to numpy array
     np_image = np.array(image).astype(np.float32) / 255.0
-    # Add batch dimension if it's a single image
-    if np_image.ndim == 3:
-        np_image = np_image[None, ...]
-    # Convert to torch tensor
+    if np_image.ndim == 2:  # If it's a grayscale image (mask)
+        np_image = np_image[None, None, ...]  # Add batch and channel dimensions
+    elif np_image.ndim == 3:  # If it's an RGB image
+        np_image = np_image[None, ...]  # Add batch dimension
     return torch.from_numpy(np_image)
 
 class GeekyRemB:
@@ -46,6 +45,16 @@ class GeekyRemB:
                 "background_color": ("COLOR", {"default": "#000000"}),
                 "invert_mask": ("BOOLEAN", {"default": False}),
                 "feather_amount": ("INT", {"default": 0, "min": 0, "max": 100, "step": 1}),
+                "edge_detection": ("BOOLEAN", {"default": False}),
+                "edge_thickness": ("INT", {"default": 1, "min": 1, "max": 10, "step": 1}),
+                "edge_color": ("COLOR", {"default": "#FFFFFF"}),
+                "shadow": ("BOOLEAN", {"default": False}),
+                "shadow_blur": ("INT", {"default": 5, "min": 0, "max": 20, "step": 1}),
+                "shadow_opacity": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.1}),
+                "color_adjustment": ("BOOLEAN", {"default": False}),
+                "brightness": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
+                "contrast": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
+                "saturation": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
             }
         }
 
@@ -74,11 +83,15 @@ class GeekyRemB:
     def remove_background(self, images, model, alpha_matting, alpha_matting_foreground_threshold, 
                           alpha_matting_background_threshold, post_process_mask, chroma_key, chroma_threshold,
                           color_tolerance, background_mode, output_format="RGBA", input_masks=None, 
-                          background_images=None, background_color="#000000", invert_mask=False, feather_amount=0):
+                          background_images=None, background_color="#000000", invert_mask=False, feather_amount=0,
+                          edge_detection=False, edge_thickness=1, edge_color="#FFFFFF", shadow=False, 
+                          shadow_blur=5, shadow_opacity=0.5, color_adjustment=False, brightness=1.0, 
+                          contrast=1.0, saturation=1.0):
         if self.session is None or self.session.model_name != model:
             self.session = new_session(model)
 
         bg_color = tuple(int(background_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4)) + (255,)
+        edge_color = tuple(int(edge_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
 
         def process_single_image(image, input_mask=None, background_image=None):
             pil_image = tensor2pil(image)
@@ -129,8 +142,27 @@ class GeekyRemB:
                 else:
                     result = Image.new("RGBA", pil_image.size, (0, 0, 0, 0))
 
-            # Use the final_mask to composite the original image onto the result
             result.paste(pil_image, (0, 0), Image.fromarray(final_mask))
+
+            if edge_detection:
+                edge_mask = cv2.Canny(final_mask, 100, 200)
+                edge_mask = cv2.dilate(edge_mask, np.ones((edge_thickness, edge_thickness), np.uint8), iterations=1)
+                edge_overlay = Image.new("RGBA", pil_image.size, (0, 0, 0, 0))
+                edge_overlay.paste(Image.new("RGB", pil_image.size, edge_color), (0, 0), Image.fromarray(edge_mask))
+                result = Image.alpha_composite(result, edge_overlay)
+
+            if shadow:
+                shadow_mask = Image.fromarray(final_mask).filter(ImageFilter.GaussianBlur(shadow_blur))
+                shadow_image = Image.new("RGBA", pil_image.size, (0, 0, 0, int(255 * shadow_opacity)))
+                result = Image.alpha_composite(result, shadow_image.filter(ImageFilter.GaussianBlur(shadow_blur)))
+
+            if color_adjustment:
+                enhancer = ImageEnhance.Brightness(result)
+                result = enhancer.enhance(brightness)
+                enhancer = ImageEnhance.Contrast(result)
+                result = enhancer.enhance(contrast)
+                enhancer = ImageEnhance.Color(result)
+                result = enhancer.enhance(saturation)
 
             if output_format == "RGB":
                 result = result.convert("RGB")
@@ -144,15 +176,26 @@ class GeekyRemB:
             logging.info(f"Processing {batch_size} images")
             
             for i in tqdm(range(batch_size), desc="Removing backgrounds"):
-                single_image = images[i]
-                input_mask = input_masks[i] if input_masks is not None else None
-                background_image = background_images[i] if background_images is not None else None
-                processed_image, processed_mask = process_single_image(single_image, input_mask, background_image)
+                single_image = images[i:i+1]
+                single_input_mask = input_masks[i:i+1] if input_masks is not None else None
+                single_background_image = background_images[i:i+1] if background_images is not None else None
+                
+                processed_image, processed_mask = process_single_image(single_image, single_input_mask, single_background_image)
+                
                 processed_images.append(processed_image)
                 processed_masks.append(processed_mask)
 
             logging.info("Finished processing all images")
-            return (torch.cat(processed_images, dim=0), torch.cat(processed_masks, dim=0))
+            
+            # Stack the processed images and masks along the batch dimension
+            stacked_images = torch.cat(processed_images, dim=0)
+            stacked_masks = torch.cat(processed_masks, dim=0)
+            
+            # Ensure the mask has the correct shape (batch_size, height, width)
+            if len(stacked_masks.shape) == 4 and stacked_masks.shape[1] == 1:
+                stacked_masks = stacked_masks.squeeze(1)
+            
+            return (stacked_images, stacked_masks)
         
         except Exception as e:
             logging.error(f"Error during background removal: {str(e)}")
