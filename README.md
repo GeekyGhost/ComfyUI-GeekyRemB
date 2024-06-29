@@ -37,6 +37,9 @@ remove_background: Manages batch processing and overall node operation.
 The node uses PyTorch tensors for efficient GPU processing and PIL for image manipulation. It's designed to be flexible and extensible, making it a valuable addition to image processing pipelines.
 Special thanks to WASasquatch for licensing their repository under the MIT license, which has contributed to the development and enhancement of this node.
 
+<img width="600" alt="Screenshot 2024-06-29 134500" src="https://github.com/GeekyGhost/ComfyUI-GeekyRemB/assets/111990299/b09a1833-8bdb-43ba-95db-da6f520e8411">
+
+
 # ComfyUI-GeekyRemB v1 (Wip - Rough)
 
 WIP - Some features not fully functional (watershed), but the majority are fully operational.  
