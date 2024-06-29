@@ -12,7 +12,13 @@ def tensor2pil(image):
     return Image.fromarray(np.clip(255. * image.cpu().numpy().squeeze(), 0, 255).astype(np.uint8))
 
 def pil2tensor(image):
-    return torch.from_numpy(np.array(image).astype(np.float32) / 255.0).unsqueeze(0)
+    # Convert PIL image to numpy array
+    np_image = np.array(image).astype(np.float32) / 255.0
+    # Add batch dimension if it's a single image
+    if np_image.ndim == 3:
+        np_image = np_image[None, ...]
+    # Convert to torch tensor
+    return torch.from_numpy(np_image)
 
 class GeekyRemB:
     def __init__(self):
@@ -123,6 +129,7 @@ class GeekyRemB:
                 else:
                     result = Image.new("RGBA", pil_image.size, (0, 0, 0, 0))
 
+            # Use the final_mask to composite the original image onto the result
             result.paste(pil_image, (0, 0), Image.fromarray(final_mask))
 
             if output_format == "RGB":
