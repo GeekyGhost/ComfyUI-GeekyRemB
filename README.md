@@ -1,4 +1,43 @@
-# ComfyUI-GeekyRemB
+# ComfyUI-GeekyRemB v2 (Pretty much complete used Claude Sonnet to help me refine v1 and make v2) 
+
+GeekyRemB Node Description:
+GeekyRemB is a powerful and versatile image processing node for ComfyUI, designed to remove backgrounds from images with advanced customization options. This node leverages the rembg library and offers a wide range of features for fine-tuning the background removal process and enhancing the resulting images.
+Key Features:
+
+Background Removal Models: Supports multiple AI models (u2net, u2netp, u2net_human_seg, u2net_cloth_seg, silueta, isnet-general-use, isnet-anime) for accurate background removal.
+Alpha Matting: Enables fine-tuned edge detection for smoother transitions between foreground and background.
+Chroma Key: Offers additional background removal using color-based keying for green, blue, or red backgrounds.
+Background Modes: Allows for transparent backgrounds, solid color backgrounds, or image replacement backgrounds.
+Mask Processing: Supports input masks, mask inversion, and feathering for precise control over the area of effect.
+Edge Detection: Adds outlines to the extracted foreground for enhanced visibility or stylistic effects.
+Shadow Generation: Creates realistic drop shadows for the extracted foreground objects.
+Color Adjustment: Provides options to modify brightness, contrast, and saturation of the output image.
+Scaling and Positioning: Allows resizing and repositioning of the foreground image when using image backgrounds.
+Batch Processing: Efficiently handles multiple images in a single operation.
+
+Usage:
+
+Input an image or batch of images to remove backgrounds.
+Select the desired AI model for background removal.
+Adjust alpha matting settings for edge refinement.
+Apply chroma keying if working with solid color backgrounds.
+Choose the background mode (transparent, color, or image).
+Fine-tune the result with mask processing, edge detection, and shadow options.
+Adjust color settings as needed.
+Scale and position the foreground when using image backgrounds.
+
+The node outputs both the processed image(s) and the corresponding mask(s), allowing for further manipulation in your ComfyUI workflow.
+For Developers:
+Key functions to note include:
+
+apply_chroma_key: Implements color-based background removal.
+process_single_image: Handles the core image processing logic.
+remove_background: Manages batch processing and overall node operation.
+
+The node uses PyTorch tensors for efficient GPU processing and PIL for image manipulation. It's designed to be flexible and extensible, making it a valuable addition to image processing pipelines.
+Special thanks to WASasquatch for licensing their repository under the MIT license, which has contributed to the development and enhancement of this node.
+
+# ComfyUI-GeekyRemB v1 (Wip - Rough)
 
 WIP - Some features not fully functional (watershed), but the majority are fully operational.  
 
