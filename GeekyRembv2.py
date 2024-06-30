@@ -58,6 +58,10 @@ class GeekyRemB:
                 "scale": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 5.0, "step": 0.1}),
                 "x_position": ("INT", {"default": 0, "min": -10000, "max": 10000, "step": 1}),
                 "y_position": ("INT", {"default": 0, "min": -10000, "max": 10000, "step": 1}),
+                "blend_mode": (["normal", "multiply", "screen", "overlay", "soft_light", "hard_light", "color_dodge", "color_burn"],),
+                "opacity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "flip_horizontal": ("BOOLEAN", {"default": False}),
+                "flip_vertical": ("BOOLEAN", {"default": False}),
             }
         }
 
@@ -89,7 +93,8 @@ class GeekyRemB:
                           background_images=None, background_color="#000000", invert_mask=False, feather_amount=0,
                           edge_detection=False, edge_thickness=1, edge_color="#FFFFFF", shadow=False, 
                           shadow_blur=5, shadow_opacity=0.5, color_adjustment=False, brightness=1.0, 
-                          contrast=1.0, saturation=1.0, scale=1.0, x_position=0, y_position=0):
+                          contrast=1.0, saturation=1.0, scale=1.0, x_position=0, y_position=0,
+                          blend_mode="normal", opacity=1.0, flip_horizontal=False, flip_vertical=False):
         if self.session is None or self.session.model_name != model:
             self.session = new_session(model)
 
@@ -149,6 +154,13 @@ class GeekyRemB:
             fg_image = Image.fromarray(original_image)
             fg_mask = Image.fromarray(final_mask)
             
+            if flip_horizontal:
+                fg_image = fg_image.transpose(Image.FLIP_LEFT_RIGHT)
+                fg_mask = fg_mask.transpose(Image.FLIP_LEFT_RIGHT)
+            if flip_vertical:
+                fg_image = fg_image.transpose(Image.FLIP_TOP_BOTTOM)
+                fg_mask = fg_mask.transpose(Image.FLIP_TOP_BOTTOM)
+
             new_size = (int(fg_image.width * scale), int(fg_image.height * scale))
             fg_image = fg_image.resize(new_size, Image.LANCZOS)
             fg_mask = fg_mask.resize(new_size, Image.LANCZOS)
@@ -161,7 +173,23 @@ class GeekyRemB:
             scaled_fg = Image.new("RGBA", result.size, (0, 0, 0, 0))
             scaled_fg.paste(fg_image, (paste_x, paste_y), fg_mask)
 
-            result = Image.alpha_composite(result, scaled_fg)
+            # Apply blend mode and opacity
+            if blend_mode == "normal":
+                result = Image.alpha_composite(result, Image.blend(result, scaled_fg, opacity))
+            elif blend_mode == "multiply":
+                result = Image.composite(scaled_fg, result, ImageChops.multiply(scaled_fg, result))
+            elif blend_mode == "screen":
+                result = Image.composite(scaled_fg, result, ImageChops.screen(scaled_fg, result))
+            elif blend_mode == "overlay":
+                result = Image.composite(scaled_fg, result, ImageChops.overlay(scaled_fg, result))
+            elif blend_mode == "soft_light":
+                result = Image.composite(scaled_fg, result, ImageChops.soft_light(scaled_fg, result))
+            elif blend_mode == "hard_light":
+                result = Image.composite(scaled_fg, result, ImageChops.hard_light(scaled_fg, result))
+            elif blend_mode == "color_dodge":
+                result = Image.composite(scaled_fg, result, ImageChops.dodge(scaled_fg, result))
+            elif blend_mode == "color_burn":
+                result = Image.composite(scaled_fg, result, ImageChops.burn(scaled_fg, result))
 
             if edge_detection:
                 edge_mask = cv2.Canny(np.array(fg_mask), 100, 200)
