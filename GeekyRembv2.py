@@ -37,6 +37,7 @@ class GeekyRemB:
                 "chroma_threshold": ("INT", {"default": 30, "min": 0, "max": 255, "step": 1}),
                 "color_tolerance": ("INT", {"default": 20, "min": 0, "max": 255, "step": 1}),
                 "background_mode": (["transparent", "color", "image"],),
+                "background_loop_mode": (["reverse", "loop"],),
             },
             "optional": {
                 "output_format": (["RGBA", "RGB"],),
@@ -89,10 +90,10 @@ class GeekyRemB:
 
     def remove_background(self, images, model, alpha_matting, alpha_matting_foreground_threshold, 
                           alpha_matting_background_threshold, post_process_mask, chroma_key, chroma_threshold,
-                          color_tolerance, background_mode, output_format="RGBA", input_masks=None, 
-                          background_images=None, background_color="#000000", invert_mask=False, feather_amount=0,
-                          edge_detection=False, edge_thickness=1, edge_color="#FFFFFF", shadow=False, 
-                          shadow_blur=5, shadow_opacity=0.5, color_adjustment=False, brightness=1.0, 
+                          color_tolerance, background_mode, background_loop_mode="loop", output_format="RGBA", 
+                          input_masks=None, background_images=None, background_color="#000000", invert_mask=False, 
+                          feather_amount=0, edge_detection=False, edge_thickness=1, edge_color="#FFFFFF", 
+                          shadow=False, shadow_blur=5, shadow_opacity=0.5, color_adjustment=False, brightness=1.0, 
                           contrast=1.0, saturation=1.0, scale=1.0, x_position=0, y_position=0, rotation=0,
                           opacity=1.0, flip_horizontal=False, flip_vertical=False):
         if self.session is None or self.session.model_name != model:
@@ -100,6 +101,21 @@ class GeekyRemB:
 
         bg_color = tuple(int(background_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4)) + (255,)
         edge_color = tuple(int(edge_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+
+        def get_background_image(index, total_images):
+            if background_images is None or len(background_images) == 0:
+                return None
+            
+            bg_count = len(background_images)
+            
+            if background_loop_mode == "loop":
+                return background_images[index % bg_count]
+            elif background_loop_mode == "reverse":
+                forward = index % (2 * bg_count)
+                if forward < bg_count:
+                    return background_images[forward]
+                else:
+                    return background_images[2 * bg_count - forward - 1]
 
         def process_single_image(image, input_mask=None, background_image=None):
             pil_image = tensor2pil(image)
@@ -165,22 +181,17 @@ class GeekyRemB:
             fg_image = fg_image.resize(new_size, Image.LANCZOS)
             fg_mask = fg_mask.resize(new_size, Image.LANCZOS)
 
-            # Rotate the foreground image and mask
             fg_image = fg_image.rotate(rotation, resample=Image.BICUBIC, expand=True)
             fg_mask = fg_mask.rotate(rotation, resample=Image.BICUBIC, expand=True)
 
-            # Calculate the position to paste the scaled and rotated image
             paste_x = x_position + (result.width - fg_image.width) // 2
             paste_y = y_position + (result.height - fg_image.height) // 2
 
-            # Create a new image with the same size as the background
             scaled_fg = Image.new("RGBA", result.size, (0, 0, 0, 0))
             scaled_fg.paste(fg_image, (paste_x, paste_y), fg_mask)
 
-            # Apply opacity
             scaled_fg = Image.blend(Image.new("RGBA", result.size, (0, 0, 0, 0)), scaled_fg, opacity)
 
-            # Composite the foreground onto the background
             result = Image.alpha_composite(result, scaled_fg)
 
             if edge_detection:
@@ -218,7 +229,7 @@ class GeekyRemB:
             for i in tqdm(range(batch_size), desc="Removing backgrounds"):
                 single_image = images[i:i+1]
                 single_input_mask = input_masks[i:i+1] if input_masks is not None else None
-                single_background_image = background_images[i:i+1] if background_images is not None else None
+                single_background_image = get_background_image(i, batch_size)
                 
                 processed_image, processed_mask = process_single_image(single_image, single_input_mask, single_background_image)
                 
@@ -227,11 +238,9 @@ class GeekyRemB:
 
             logging.info("Finished processing all images")
             
-            # Stack the processed images and masks along the batch dimension
             stacked_images = torch.cat(processed_images, dim=0)
             stacked_masks = torch.cat(processed_masks, dim=0)
             
-            # Ensure the mask has the correct shape (batch_size, height, width)
             if len(stacked_masks.shape) == 4 and stacked_masks.shape[1] == 1:
                 stacked_masks = stacked_masks.squeeze(1)
             
