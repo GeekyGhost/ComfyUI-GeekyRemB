@@ -39,22 +39,35 @@ Batch Processing: Efficiently handles multiple images in a single operation.
 Usage
 
 Input an image or batch of images for background removal.
+
 Select the desired AI model for background removal.
+
 Adjust alpha matting settings for edge refinement if needed.
+
 Apply chroma keying if working with solid color backgrounds.
+
 Choose the background mode (transparent, color, or image).
+
 Fine-tune the result with mask processing, edge detection, and shadow options.
+
 Adjust color settings as needed.
+
 Scale and position the foreground when using image backgrounds.
 
 The node outputs both the processed image(s) and the corresponding mask(s), allowing for further manipulation in your ComfyUI workflow.
+
 Implementation Details
+
 For developers interested in the technical aspects:
 
 Chroma Key Implementation: The apply_chroma_key function uses OpenCV (cv2) to perform color-based background removal. It converts the image to HSV color space and creates a mask based on the specified color range.
+
 Image Processing Core: The process_single_image function handles the main image processing logic, including background removal, mask application, and all post-processing effects.
+
 Batch Processing: The remove_background function manages batch processing and overall node operation. It uses tqdm for progress tracking during batch operations.
+
 Tensor Handling: The node uses PyTorch tensors for efficient GPU processing, with helper functions tensor2pil and pil2tensor for conversion between tensor and PIL image formats.
+
 Image Manipulation: Extensive use of PIL (Python Imaging Library) for various image processing tasks, including resizing, rotating, and applying filters.
 
 Installation
