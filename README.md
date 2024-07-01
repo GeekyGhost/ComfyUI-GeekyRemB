@@ -86,5 +86,3 @@ Remember, the effectiveness of each setting can vary depending on the input imag
 
 Inspired by tools found here https://github.com/WASasquatch/was-node-suite-comfyui.git
 
-
-<img width="907" alt="Screenshot 2024-06-28 113238" src="https://github.com/GeekyGhost/ComfyUI-GeekyRemB/assets/111990299/fc5b0df2-6410-4751-8719-6eb6841574cb">
