@@ -1,5 +1,3 @@
-Save the python file into your custom nodes folder and run ComfyUI. Use the one labled v2. 
-
 # ComfyUI-GeekyRemB ComfyUI-GeekyRemB
 Overview
 ComfyUI-GeekyRemB is a powerful and versatile image processing node for ComfyUI, designed to remove or replace backgrounds with advanced customization options. This node leverages the rembg library and offers a wide range of features for fine-tuning the background removal process and enhancing the resulting images.
