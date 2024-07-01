@@ -77,6 +77,8 @@ Contributing
 
 <img width="600" alt="Screenshot 2024-06-29 134500" src="https://github.com/GeekyGhost/ComfyUI-GeekyRemB/assets/111990299/b09a1833-8bdb-43ba-95db-da6f520e8411">
 
+Output examples can be found here - https://civitai.com/models/546180/geeky-remb
+
 
 
 
