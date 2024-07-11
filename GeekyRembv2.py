@@ -38,6 +38,8 @@ class GeekyRemB:
                 "color_tolerance": ("INT", {"default": 20, "min": 0, "max": 255, "step": 1}),
                 "background_mode": (["transparent", "color", "image"],),
                 "background_loop_mode": (["reverse", "loop"],),
+                "background_width": ("INT", {"default": 512, "min": 1, "max": 4096, "step": 1}),
+                "background_height": ("INT", {"default": 512, "min": 1, "max": 4096, "step": 1}),
             },
             "optional": {
                 "output_format": (["RGBA", "RGB"],),
@@ -63,6 +65,7 @@ class GeekyRemB:
                 "opacity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "flip_horizontal": ("BOOLEAN", {"default": False}),
                 "flip_vertical": ("BOOLEAN", {"default": False}),
+                "aspect_ratio": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1}),
             }
         }
 
@@ -90,12 +93,13 @@ class GeekyRemB:
 
     def remove_background(self, images, model, alpha_matting, alpha_matting_foreground_threshold, 
                           alpha_matting_background_threshold, post_process_mask, chroma_key, chroma_threshold,
-                          color_tolerance, background_mode, background_loop_mode="loop", output_format="RGBA", 
-                          input_masks=None, background_images=None, background_color="#000000", invert_mask=False, 
-                          feather_amount=0, edge_detection=False, edge_thickness=1, edge_color="#FFFFFF", 
-                          shadow=False, shadow_blur=5, shadow_opacity=0.5, color_adjustment=False, brightness=1.0, 
-                          contrast=1.0, saturation=1.0, scale=1.0, x_position=0, y_position=0, rotation=0,
-                          opacity=1.0, flip_horizontal=False, flip_vertical=False):
+                          color_tolerance, background_mode, background_loop_mode="loop", background_width=512,
+                          background_height=512, output_format="RGBA", input_masks=None, background_images=None, 
+                          background_color="#000000", invert_mask=False, feather_amount=0, edge_detection=False, 
+                          edge_thickness=1, edge_color="#FFFFFF", shadow=False, shadow_blur=5, shadow_opacity=0.5, 
+                          color_adjustment=False, brightness=1.0, contrast=1.0, saturation=1.0, scale=1.0, 
+                          x_position=0, y_position=0, rotation=0, opacity=1.0, flip_horizontal=False, 
+                          flip_vertical=False, aspect_ratio=1.0):
         if self.session is None or self.session.model_name != model:
             self.session = new_session(model)
 
@@ -109,13 +113,16 @@ class GeekyRemB:
             bg_count = len(background_images)
             
             if background_loop_mode == "loop":
-                return background_images[index % bg_count]
+                bg_image = background_images[index % bg_count]
             elif background_loop_mode == "reverse":
                 forward = index % (2 * bg_count)
                 if forward < bg_count:
-                    return background_images[forward]
+                    bg_image = background_images[forward]
                 else:
-                    return background_images[2 * bg_count - forward - 1]
+                    bg_image = background_images[2 * bg_count - forward - 1]
+            
+            bg_pil = tensor2pil(bg_image)
+            return bg_pil.resize((background_width, background_height), Image.LANCZOS)
 
         def process_single_image(image, input_mask=None, background_image=None):
             pil_image = tensor2pil(image)
@@ -156,15 +163,14 @@ class GeekyRemB:
                 final_mask = rembg_mask
 
             if background_mode == "transparent":
-                result = Image.new("RGBA", pil_image.size, (0, 0, 0, 0))
+                result = Image.new("RGBA", (background_width, background_height), (0, 0, 0, 0))
             elif background_mode == "color":
-                result = Image.new("RGBA", pil_image.size, bg_color)
+                result = Image.new("RGBA", (background_width, background_height), bg_color)
             else:  # background_mode == "image"
                 if background_image is not None:
-                    bg_pil = tensor2pil(background_image)
-                    result = bg_pil.resize(pil_image.size, Image.LANCZOS).convert("RGBA")
+                    result = background_image.convert("RGBA")
                 else:
-                    result = Image.new("RGBA", pil_image.size, (0, 0, 0, 0))
+                    result = Image.new("RGBA", (background_width, background_height), (0, 0, 0, 0))
 
             # Scale, rotate, and position the foreground image
             fg_image = Image.fromarray(original_image)
@@ -177,33 +183,37 @@ class GeekyRemB:
                 fg_image = fg_image.transpose(Image.FLIP_TOP_BOTTOM)
                 fg_mask = fg_mask.transpose(Image.FLIP_TOP_BOTTOM)
 
-            new_size = (int(fg_image.width * scale), int(fg_image.height * scale))
-            fg_image = fg_image.resize(new_size, Image.LANCZOS)
-            fg_mask = fg_mask.resize(new_size, Image.LANCZOS)
+            # Apply aspect ratio adjustment
+            orig_width, orig_height = fg_image.size
+            new_width = int(orig_width * scale)
+            new_height = int(new_width / aspect_ratio)
+            
+            fg_image = fg_image.resize((new_width, new_height), Image.LANCZOS)
+            fg_mask = fg_mask.resize((new_width, new_height), Image.LANCZOS)
 
             fg_image = fg_image.rotate(rotation, resample=Image.BICUBIC, expand=True)
             fg_mask = fg_mask.rotate(rotation, resample=Image.BICUBIC, expand=True)
 
-            paste_x = x_position + (result.width - fg_image.width) // 2
-            paste_y = y_position + (result.height - fg_image.height) // 2
+            paste_x = x_position + (background_width - fg_image.width) // 2
+            paste_y = y_position + (background_height - fg_image.height) // 2
 
-            scaled_fg = Image.new("RGBA", result.size, (0, 0, 0, 0))
+            scaled_fg = Image.new("RGBA", (background_width, background_height), (0, 0, 0, 0))
             scaled_fg.paste(fg_image, (paste_x, paste_y), fg_mask)
 
-            scaled_fg = Image.blend(Image.new("RGBA", result.size, (0, 0, 0, 0)), scaled_fg, opacity)
+            scaled_fg = Image.blend(Image.new("RGBA", (background_width, background_height), (0, 0, 0, 0)), scaled_fg, opacity)
 
             result = Image.alpha_composite(result, scaled_fg)
 
             if edge_detection:
                 edge_mask = cv2.Canny(np.array(fg_mask), 100, 200)
                 edge_mask = cv2.dilate(edge_mask, np.ones((edge_thickness, edge_thickness), np.uint8), iterations=1)
-                edge_overlay = Image.new("RGBA", result.size, (0, 0, 0, 0))
+                edge_overlay = Image.new("RGBA", (background_width, background_height), (0, 0, 0, 0))
                 edge_overlay.paste(Image.new("RGB", fg_image.size, edge_color), (paste_x, paste_y), Image.fromarray(edge_mask))
                 result = Image.alpha_composite(result, edge_overlay)
 
             if shadow:
                 shadow_mask = fg_mask.filter(ImageFilter.GaussianBlur(shadow_blur))
-                shadow_image = Image.new("RGBA", result.size, (0, 0, 0, 0))
+                shadow_image = Image.new("RGBA", (background_width, background_height), (0, 0, 0, 0))
                 shadow_image.paste((0, 0, 0, int(255 * shadow_opacity)), (paste_x, paste_y), shadow_mask)
                 result = Image.alpha_composite(result, shadow_image.filter(ImageFilter.GaussianBlur(shadow_blur)))
 
