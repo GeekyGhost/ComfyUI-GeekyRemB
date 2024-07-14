@@ -1,3 +1,7 @@
+This is a custom node for ComfyUI
+can be found here!
+https://github.com/comfyanonymous/ComfyUI
+
 # ComfyUI-GeekyRemB ComfyUI-GeekyRemB
 Overview
 ComfyUI-GeekyRemB is a powerful and versatile image processing node for ComfyUI, designed to remove or replace backgrounds with advanced customization options. This node leverages the rembg library and offers a wide range of features for fine-tuning the background removal process and enhancing the resulting images.
