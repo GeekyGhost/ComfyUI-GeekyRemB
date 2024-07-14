@@ -1,5 +1,5 @@
 This is a custom node for ComfyUI
-can be found here!
+and can be found here!
 https://github.com/comfyanonymous/ComfyUI
 
 # ComfyUI-GeekyRemB ComfyUI-GeekyRemB
