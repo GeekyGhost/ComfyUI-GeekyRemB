@@ -58,14 +58,16 @@ class GeekyRemB:
                 "brightness": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
                 "contrast": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
                 "saturation": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
-                "scale": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 5.0, "step": 0.1}),
                 "x_position": ("INT", {"default": 0, "min": -10000, "max": 10000, "step": 1}),
                 "y_position": ("INT", {"default": 0, "min": -10000, "max": 10000, "step": 1}),
                 "rotation": ("FLOAT", {"default": 0, "min": -360, "max": 360, "step": 0.1}),
                 "opacity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "flip_horizontal": ("BOOLEAN", {"default": False}),
                 "flip_vertical": ("BOOLEAN", {"default": False}),
-                "aspect_ratio": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1}),
+                "mask_blur": ("INT", {"default": 0, "min": 0, "max": 100, "step": 1}),
+                "mask_expansion": ("INT", {"default": 0, "min": -100, "max": 100, "step": 1}),
+                "foreground_scale": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 5.0, "step": 0.1}),
+                "foreground_aspect_ratio": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1}),
             }
         }
 
@@ -91,15 +93,35 @@ class GeekyRemB:
         mask = 255 - cv2.threshold(mask, threshold, 255, cv2.THRESH_BINARY)[1]
         return mask
 
+    def process_mask(self, mask, invert_mask, feather_amount, mask_blur, mask_expansion):
+        if invert_mask:
+            mask = 255 - mask
+
+        if mask_expansion != 0:
+            kernel = np.ones((abs(mask_expansion), abs(mask_expansion)), np.uint8)
+            if mask_expansion > 0:
+                mask = cv2.dilate(mask, kernel, iterations=1)
+            else:
+                mask = cv2.erode(mask, kernel, iterations=1)
+
+        if feather_amount > 0:
+            mask = cv2.GaussianBlur(mask, (0, 0), sigmaX=feather_amount)
+
+        if mask_blur > 0:
+            mask = cv2.GaussianBlur(mask, (0, 0), sigmaX=mask_blur)
+
+        return mask
+
     def remove_background(self, images, model, alpha_matting, alpha_matting_foreground_threshold, 
                           alpha_matting_background_threshold, post_process_mask, chroma_key, chroma_threshold,
-                          color_tolerance, background_mode, background_loop_mode="loop", background_width=512,
-                          background_height=512, output_format="RGBA", input_masks=None, background_images=None, 
-                          background_color="#000000", invert_mask=False, feather_amount=0, edge_detection=False, 
-                          edge_thickness=1, edge_color="#FFFFFF", shadow=False, shadow_blur=5, shadow_opacity=0.5, 
-                          color_adjustment=False, brightness=1.0, contrast=1.0, saturation=1.0, scale=1.0, 
-                          x_position=0, y_position=0, rotation=0, opacity=1.0, flip_horizontal=False, 
-                          flip_vertical=False, aspect_ratio=1.0):
+                          color_tolerance, background_mode, background_loop_mode, background_width, background_height,
+                          output_format="RGBA", input_masks=None, background_images=None, background_color="#000000", 
+                          invert_mask=False, feather_amount=0, edge_detection=False, 
+                          edge_thickness=1, edge_color="#FFFFFF", shadow=False, shadow_blur=5, 
+                          shadow_opacity=0.5, color_adjustment=False, brightness=1.0, contrast=1.0, 
+                          saturation=1.0, x_position=0, y_position=0, rotation=0, opacity=1.0, 
+                          flip_horizontal=False, flip_vertical=False, mask_blur=0, mask_expansion=0,
+                          foreground_scale=None, foreground_aspect_ratio=None):
         if self.session is None or self.session.model_name != model:
             self.session = new_session(model)
 
@@ -129,13 +151,7 @@ class GeekyRemB:
             original_image = np.array(pil_image)
             
             if input_mask is not None:
-                mask_pil = Image.fromarray(input_mask.squeeze().cpu().numpy().astype(np.uint8) * 255)
-                mask_pil = mask_pil.resize(pil_image.size, Image.LANCZOS)
-                if invert_mask:
-                    mask_pil = ImageOps.invert(mask_pil)
-                if feather_amount > 0:
-                    mask_pil = mask_pil.filter(ImageFilter.GaussianBlur(feather_amount))
-                input_mask_np = np.array(mask_pil)
+                input_mask_np = input_mask.squeeze().cpu().numpy().astype(np.uint8) * 255
             else:
                 input_mask_np = None
 
@@ -162,20 +178,48 @@ class GeekyRemB:
             else:
                 final_mask = rembg_mask
 
+            final_mask = self.process_mask(final_mask, invert_mask, feather_amount, mask_blur, mask_expansion)
+
+            # Calculate default scale and aspect ratio
+            orig_width, orig_height = pil_image.size
+            default_scale = 1.0
+            default_aspect_ratio = orig_width / orig_height
+
+            # Use provided values or defaults
+            scale = foreground_scale if foreground_scale is not None else default_scale
+            
+            if foreground_aspect_ratio is not None:
+                # User specified an aspect ratio
+                aspect_ratio = foreground_aspect_ratio
+                new_width = int(orig_width * scale)
+                new_height = int(new_width / aspect_ratio)
+            else:
+                # Maintain original aspect ratio
+                new_width = int(orig_width * scale)
+                new_height = int(orig_height * scale)
+                aspect_ratio = new_width / new_height
+
+            fg_image = pil_image.resize((new_width, new_height), Image.LANCZOS)
+            fg_mask = Image.fromarray(final_mask).resize((new_width, new_height), Image.LANCZOS)
+
+            # Determine the output dimensions
             if background_mode == "transparent":
-                result = Image.new("RGBA", (background_width, background_height), (0, 0, 0, 0))
+                output_width, output_height = new_width, new_height
+            else:
+                output_width, output_height = background_width, background_height
+
+            # Create the result image
+            if background_mode == "transparent":
+                result = Image.new("RGBA", (output_width, output_height), (0, 0, 0, 0))
             elif background_mode == "color":
-                result = Image.new("RGBA", (background_width, background_height), bg_color)
+                result = Image.new("RGBA", (output_width, output_height), bg_color)
             else:  # background_mode == "image"
                 if background_image is not None:
-                    result = background_image.convert("RGBA")
+                    result = background_image.convert("RGBA").resize((output_width, output_height), Image.LANCZOS)
                 else:
-                    result = Image.new("RGBA", (background_width, background_height), (0, 0, 0, 0))
+                    result = Image.new("RGBA", (output_width, output_height), (0, 0, 0, 0))
 
-            # Scale, rotate, and position the foreground image
-            fg_image = Image.fromarray(original_image)
-            fg_mask = Image.fromarray(final_mask)
-            
+            # Apply transformations to foreground
             if flip_horizontal:
                 fg_image = fg_image.transpose(Image.FLIP_LEFT_RIGHT)
                 fg_mask = fg_mask.transpose(Image.FLIP_LEFT_RIGHT)
@@ -183,37 +227,37 @@ class GeekyRemB:
                 fg_image = fg_image.transpose(Image.FLIP_TOP_BOTTOM)
                 fg_mask = fg_mask.transpose(Image.FLIP_TOP_BOTTOM)
 
-            # Apply aspect ratio adjustment
-            orig_width, orig_height = fg_image.size
-            new_width = int(orig_width * scale)
-            new_height = int(new_width / aspect_ratio)
-            
-            fg_image = fg_image.resize((new_width, new_height), Image.LANCZOS)
-            fg_mask = fg_mask.resize((new_width, new_height), Image.LANCZOS)
-
             fg_image = fg_image.rotate(rotation, resample=Image.BICUBIC, expand=True)
             fg_mask = fg_mask.rotate(rotation, resample=Image.BICUBIC, expand=True)
 
-            paste_x = x_position + (background_width - fg_image.width) // 2
-            paste_y = y_position + (background_height - fg_image.height) // 2
+            # Calculate paste position
+            paste_x = x_position + (output_width - fg_image.width) // 2
+            paste_y = y_position + (output_height - fg_image.height) // 2
 
-            scaled_fg = Image.new("RGBA", (background_width, background_height), (0, 0, 0, 0))
-            scaled_fg.paste(fg_image, (paste_x, paste_y), fg_mask)
+            # Create a new RGBA image for the foreground with correct opacity
+            fg_rgba = fg_image.convert("RGBA")
+            fg_with_opacity = Image.new("RGBA", fg_rgba.size, (0, 0, 0, 0))
+            for x in range(fg_rgba.width):
+                for y in range(fg_rgba.height):
+                    r, g, b, a = fg_rgba.getpixel((x, y))
+                    fg_with_opacity.putpixel((x, y), (r, g, b, int(a * opacity)))
 
-            scaled_fg = Image.blend(Image.new("RGBA", (background_width, background_height), (0, 0, 0, 0)), scaled_fg, opacity)
+            # Create a new mask with the same opacity
+            fg_mask_with_opacity = fg_mask.point(lambda p: int(p * opacity))
 
-            result = Image.alpha_composite(result, scaled_fg)
+            # Paste foreground onto result
+            result.paste(fg_with_opacity, (paste_x, paste_y), fg_mask_with_opacity)
 
             if edge_detection:
                 edge_mask = cv2.Canny(np.array(fg_mask), 100, 200)
                 edge_mask = cv2.dilate(edge_mask, np.ones((edge_thickness, edge_thickness), np.uint8), iterations=1)
-                edge_overlay = Image.new("RGBA", (background_width, background_height), (0, 0, 0, 0))
+                edge_overlay = Image.new("RGBA", (output_width, output_height), (0, 0, 0, 0))
                 edge_overlay.paste(Image.new("RGB", fg_image.size, edge_color), (paste_x, paste_y), Image.fromarray(edge_mask))
                 result = Image.alpha_composite(result, edge_overlay)
 
             if shadow:
                 shadow_mask = fg_mask.filter(ImageFilter.GaussianBlur(shadow_blur))
-                shadow_image = Image.new("RGBA", (background_width, background_height), (0, 0, 0, 0))
+                shadow_image = Image.new("RGBA", (output_width, output_height), (0, 0, 0, 0))
                 shadow_image.paste((0, 0, 0, int(255 * shadow_opacity)), (paste_x, paste_y), shadow_mask)
                 result = Image.alpha_composite(result, shadow_image.filter(ImageFilter.GaussianBlur(shadow_blur)))
 
