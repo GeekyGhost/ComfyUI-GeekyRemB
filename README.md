@@ -2,88 +2,109 @@ This is a custom node for ComfyUI
 which can be found here!
 https://github.com/comfyanonymous/ComfyUI
 
-# ComfyUI-GeekyRemB ComfyUI-GeekyRemB
-Overview
-ComfyUI-GeekyRemB is a powerful and versatile image processing node for ComfyUI, designed to remove or replace backgrounds with advanced customization options. This node leverages the rembg library and offers a wide range of features for fine-tuning the background removal process and enhancing the resulting images.
-Key Features
+<img width="725" alt="Screenshot 2024-07-18 182336" src="https://github.com/user-attachments/assets/dff53dd1-ff4f-48b2-8a96-5f8443cac251">
 
-Multiple Background Removal Models: Supports various AI models for accurate background removal:
+<img width="688" alt="Screenshot 2024-07-18 191152" src="https://github.com/user-attachments/assets/48281466-9dd7-4dcd-8f1c-3e2bbb69f114">
 
-u2net
-u2netp
-u2net_human_seg
-u2net_cloth_seg
-silueta
-isnet-general-use
-isnet-anime
+GeekyRemB: Advanced Background Removal and Image Processing Node for ComfyUI
+Part 1: User Guide
+GeekyRemB is a powerful ComfyUI node that offers advanced background removal and image processing capabilities. Here's a detailed guide on how to use each feature:
+Input Parameters:
 
+images: The input image(s) to process.
+model: Choose the background removal model (e.g., u2net, isnet-anime).
+alpha_matting: Enable for improved edge detection (may be slower).
+alpha_matting_foreground_threshold: Adjust for alpha matting precision.
+alpha_matting_background_threshold: Adjust for alpha matting precision.
+post_process_mask: Apply post-processing to the mask for smoother edges.
+chroma_key: Remove specific color backgrounds (none, green, blue, red).
+chroma_threshold: Adjust chroma key sensitivity.
+color_tolerance: Fine-tune chroma key color range.
+background_mode: Choose output background (transparent, color, image).
+background_loop_mode: How background images cycle (reverse, loop).
+background_width: Set output width.
+background_height: Set output height.
 
-Alpha Matting: Enables fine-tuned edge detection for smoother transitions between foreground and background.
-Chroma Key: Offers additional background removal using color-based keying for green, blue, or red backgrounds.
-Flexible Background Modes:
+Optional Parameters:
 
-Transparent
-Solid color
-Image replacement
+output_format: Choose between RGBA or RGB output.
+input_masks: Provide custom input masks.
+background_images: Supply images for image background mode.
+background_color: Set color for color background mode.
+invert_mask: Invert the generated mask.
+feather_amount: Soften mask edges.
+edge_detection: Add edges to the foreground.
+edge_thickness: Adjust edge thickness.
+edge_color: Set edge color.
+shadow: Add a shadow effect.
+shadow_blur: Adjust shadow softness.
+shadow_opacity: Set shadow transparency.
+color_adjustment: Enable color modifications.
+brightness: Adjust image brightness.
+contrast: Modify image contrast.
+saturation: Change color saturation.
+x_position: Horizontally position the foreground.
+y_position: Vertically position the foreground.
+rotation: Rotate the foreground image.
+opacity: Set foreground transparency.
+flip_horizontal: Mirror the image horizontally.
+flip_vertical: Flip the image vertically.
+mask_blur: Apply blur to the mask.
+mask_expansion: Expand or contract the mask.
+foreground_scale: Resize the foreground image.
+foreground_aspect_ratio: Adjust the foreground's aspect ratio.
 
+Usage Tips:
 
-Advanced Mask Processing:
+Experiment with different models for optimal results with various image types.
+Use alpha matting for complex edges like hair or fur.
+Combine chroma key with model-based removal for challenging backgrounds.
+Adjust mask settings (blur, expansion) for refined edges.
+Use color adjustment to match foreground with new backgrounds.
+Experiment with shadow settings for realistic compositing.
 
-Supports input masks
-Mask inversion
-Feathering for precise control
+Part 2: Developer Guide
+GeekyRemB is built with extensibility and performance in mind. Here's an overview of its structure and notable features:
+Key Components:
 
+GeekyRemB Class: The main node class, handling all processing logic.
+INPUT_TYPES: Defines all input parameters, their types, and defaults.
+remove_background: The primary function orchestrating the entire process.
 
-Edge Detection: Adds customizable outlines to the extracted foreground.
-Shadow Generation: Creates realistic drop shadows for extracted foreground objects.
-Color Adjustment: Modify brightness, contrast, and saturation of the output image.
-Scaling and Positioning: Resize and reposition the foreground image when using image backgrounds.
-Batch Processing: Efficiently handles multiple images in a single operation.
+Notable Functions:
 
-Usage
+apply_chroma_key: Implements color-based background removal.
+process_mask: Handles various mask modifications (inversion, expansion, blurring).
+get_background_image: Manages background image selection and looping.
+process_single_image: The core function processing each image.
 
-Input an image or batch of images for background removal.
+Unique Aspects:
 
-Select the desired AI model for background removal.
+Flexible Scaling: The foreground_scale and foreground_aspect_ratio parameters allow precise control over foreground dimensions while maintaining or adjusting aspect ratios.
+Advanced Mask Processing: The process_mask function combines multiple mask operations efficiently.
+Optimized Opacity Handling: Applies opacity to both the foreground image and its mask for accurate blending.
+Batch Processing: Efficiently processes multiple images in a batch, utilizing tqdm for progress tracking.
+Error Handling and Logging: Comprehensive error catching and informative logging for debugging.
+Modular Design: Each major step (chroma keying, mask processing, image composition) is separated into functions for easy maintenance and extension.
 
-Adjust alpha matting settings for edge refinement if needed.
+Performance Considerations:
 
-Apply chroma keying if working with solid color backgrounds.
+Uses NumPy and OpenCV for efficient image processing operations.
+Leverages PIL for image manipulations that are more efficiently done in that library.
+Implements batch processing to maximize GPU utilization when processing multiple images.
 
-Choose the background mode (transparent, color, or image).
+Extensibility:
+The modular design allows for easy addition of new features:
 
-Fine-tune the result with mask processing, edge detection, and shadow options.
+New background removal models can be added to the model input type.
+Additional image processing effects can be implemented by adding new functions and corresponding input parameters.
 
-Adjust color settings as needed.
+Integration with ComfyUI:
 
-Scale and position the foreground when using image backgrounds.
+The NODE_CLASS_MAPPINGS and NODE_DISPLAY_NAME_MAPPINGS dictionaries allow seamless integration with ComfyUI.
+The INPUT_TYPES class method provides a clear interface for ComfyUI to generate the appropriate UI elements.
 
-The node outputs both the processed image(s) and the corresponding mask(s), allowing for further manipulation in your ComfyUI workflow.
-
-Implementation Details
-
-For developers interested in the technical aspects:
-
-Chroma Key Implementation: The apply_chroma_key function uses OpenCV (cv2) to perform color-based background removal. It converts the image to HSV color space and creates a mask based on the specified color range.
-
-Image Processing Core: The process_single_image function handles the main image processing logic, including background removal, mask application, and all post-processing effects.
-
-Batch Processing: The remove_background function manages batch processing and overall node operation. It uses tqdm for progress tracking during batch operations.
-
-Tensor Handling: The node uses PyTorch tensors for efficient GPU processing, with helper functions tensor2pil and pil2tensor for conversion between tensor and PIL image formats.
-
-Image Manipulation: Extensive use of PIL (Python Imaging Library) for various image processing tasks, including resizing, rotating, and applying filters.
-
-Installation
-[Include instructions for installing the node in ComfyUI]
-Dependencies
-
-numpy
-rembg
-Pillow
-torch
-opencv-python (cv2)
-tqdm
+Developers can extend this node by adding new processing functions, integrating additional background removal models, or enhancing the image composition capabilities. The clear structure and comprehensive error handling make it an excellent starting point for further development.
 
 Acknowledgements
 Special thanks to WASasquatch for licensing their repository under the MIT license, which has contributed to the development and enhancement of this node.
