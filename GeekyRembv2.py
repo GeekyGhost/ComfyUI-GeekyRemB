@@ -260,6 +260,12 @@ class GeekyRemB:
             logging.error(f"Error during background removal: {str(e)}")
             raise
 
+# Node class mapping
 NODE_CLASS_MAPPINGS = {
     "GeekyRemB": GeekyRemB
+}
+
+# Optional: Add a display name for the node
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "GeekyRemB": "Geeky RemB"
 }
