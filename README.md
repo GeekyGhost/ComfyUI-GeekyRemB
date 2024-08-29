@@ -1,4 +1,4 @@
-Update, correct the ini file issue by adding .sripts
+Update: 8/29, corrected the ini file issue by adding .sripts
 
 This is a custom node for ComfyUI
 which can be found here!
