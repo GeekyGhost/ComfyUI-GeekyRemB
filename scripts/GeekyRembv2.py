@@ -42,7 +42,7 @@ class GeekyRemB:
                 "chroma_threshold": ("INT", {"default": 30, "min": 0, "max": 255, "step": 1}),
                 "color_tolerance": ("INT", {"default": 20, "min": 0, "max": 255, "step": 1}),
                 "background_mode": (["transparent", "color", "image"],),
-                "background_color": ("STRING", {"default": "#000000"}),
+                "background_color": ("COLOR", {"default": "#000000"}),
                 "background_loop_mode": (["reverse", "loop"],),
                 "aspect_ratio_preset": (["original", "1:1", "4:3", "16:9", "2:1", "custom"],),
                 "custom_aspect_ratio": ("STRING", {"default": ""}),
@@ -57,7 +57,7 @@ class GeekyRemB:
                 "feather_amount": ("INT", {"default": 0, "min": 0, "max": 100, "step": 1}),
                 "edge_detection": ("BOOLEAN", {"default": False}),
                 "edge_thickness": ("INT", {"default": 1, "min": 1, "max": 10, "step": 1}),
-                "edge_color": ("STRING", {"default": "#FFFFFF"}),
+                "edge_color": ("COLOR", {"default": "#FFFFFF"}),
                 "shadow": ("BOOLEAN", {"default": False}),
                 "shadow_blur": ("INT", {"default": 5, "min": 0, "max": 20, "step": 1}),
                 "shadow_opacity": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.1}),
@@ -160,8 +160,8 @@ class GeekyRemB:
             else:
                 self.session = new_session(model, providers=providers)
 
-        bg_color = tuple(int(background_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4)) + (255,)
-        edge_color = tuple(int(edge_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+        bg_color = background_color
+        edge_color = edge_color
 
         aspect_ratio = self.parse_aspect_ratio(aspect_ratio_preset, custom_aspect_ratio)
 
