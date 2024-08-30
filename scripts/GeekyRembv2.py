@@ -5,6 +5,8 @@ import torch
 import logging
 import cv2
 from tqdm import tqdm
+import onnxruntime as ort
+from transformers import pipeline
 
 logging.basicConfig(level=logging.INFO)
 
@@ -22,13 +24,16 @@ def pil2tensor(image):
 class GeekyRemB:
     def __init__(self):
         self.session = None
+        self.bria_pipeline = None
+        self.use_gpu = 'CUDAExecutionProvider' in ort.get_available_providers()
+        self.custom_model_path = None
 
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
                 "images": ("IMAGE",),
-                "model": (["u2net", "u2netp", "u2net_human_seg", "u2net_cloth_seg", "silueta", "isnet-general-use", "isnet-anime"],),
+                "model": (["u2net", "u2netp", "u2net_human_seg", "u2net_cloth_seg", "silueta", "isnet-general-use", "isnet-anime", "bria", "inspyrenet", "tracer", "basnet", "deeplab", "ormbg", "u2net_custom"],),
                 "alpha_matting": ("BOOLEAN", {"default": False}),
                 "alpha_matting_foreground_threshold": ("INT", {"default": 240, "min": 0, "max": 255, "step": 1}),
                 "alpha_matting_background_threshold": ("INT", {"default": 10, "min": 0, "max": 255, "step": 1}),
@@ -37,20 +42,22 @@ class GeekyRemB:
                 "chroma_threshold": ("INT", {"default": 30, "min": 0, "max": 255, "step": 1}),
                 "color_tolerance": ("INT", {"default": 20, "min": 0, "max": 255, "step": 1}),
                 "background_mode": (["transparent", "color", "image"],),
+                "background_color": ("STRING", {"default": "#000000"}),
                 "background_loop_mode": (["reverse", "loop"],),
-                "background_width": ("INT", {"default": 512, "min": 1, "max": 4096, "step": 1}),
-                "background_height": ("INT", {"default": 512, "min": 1, "max": 4096, "step": 1}),
-            },
-            "optional": {
-                "output_format": (["RGBA", "RGB"],),
-                "input_masks": ("MASK",),
-                "background_images": ("IMAGE",),
-                "background_color": ("COLOR", {"default": "#000000"}),
+                "aspect_ratio_preset": (["original", "1:1", "4:3", "16:9", "2:1", "custom"],),
+                "custom_aspect_ratio": ("STRING", {"default": ""}),
+                "foreground_scale": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 5.0, "step": 0.1}),
+                "x_position": ("INT", {"default": 0, "min": -10000, "max": 10000, "step": 1}),
+                "y_position": ("INT", {"default": 0, "min": -10000, "max": 10000, "step": 1}),
+                "rotation": ("FLOAT", {"default": 0, "min": -360, "max": 360, "step": 0.1}),
+                "opacity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "flip_horizontal": ("BOOLEAN", {"default": False}),
+                "flip_vertical": ("BOOLEAN", {"default": False}),
                 "invert_mask": ("BOOLEAN", {"default": False}),
                 "feather_amount": ("INT", {"default": 0, "min": 0, "max": 100, "step": 1}),
                 "edge_detection": ("BOOLEAN", {"default": False}),
                 "edge_thickness": ("INT", {"default": 1, "min": 1, "max": 10, "step": 1}),
-                "edge_color": ("COLOR", {"default": "#FFFFFF"}),
+                "edge_color": ("STRING", {"default": "#FFFFFF"}),
                 "shadow": ("BOOLEAN", {"default": False}),
                 "shadow_blur": ("INT", {"default": 5, "min": 0, "max": 20, "step": 1}),
                 "shadow_opacity": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.1}),
@@ -58,16 +65,15 @@ class GeekyRemB:
                 "brightness": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
                 "contrast": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
                 "saturation": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
-                "x_position": ("INT", {"default": 0, "min": -10000, "max": 10000, "step": 1}),
-                "y_position": ("INT", {"default": 0, "min": -10000, "max": 10000, "step": 1}),
-                "rotation": ("FLOAT", {"default": 0, "min": -360, "max": 360, "step": 0.1}),
-                "opacity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "flip_horizontal": ("BOOLEAN", {"default": False}),
-                "flip_vertical": ("BOOLEAN", {"default": False}),
                 "mask_blur": ("INT", {"default": 0, "min": 0, "max": 100, "step": 1}),
                 "mask_expansion": ("INT", {"default": 0, "min": -100, "max": 100, "step": 1}),
-                "foreground_scale": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 5.0, "step": 0.1}),
-                "foreground_aspect_ratio": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1}),
+            },
+            "optional": {
+                "input_masks": ("MASK",),
+                "background_images": ("IMAGE",),
+                "output_format": (["RGBA", "RGB"],),
+                "only_mask": ("BOOLEAN", {"default": False}),
+                "custom_model_path": ("STRING", {"default": ""}),
             }
         }
 
@@ -112,21 +118,52 @@ class GeekyRemB:
 
         return mask
 
+    def parse_aspect_ratio(self, aspect_ratio_preset, custom_aspect_ratio):
+        if aspect_ratio_preset == "custom":
+            if ":" in custom_aspect_ratio:
+                try:
+                    w, h = map(float, custom_aspect_ratio.split(":"))
+                    return w / h
+                except ValueError:
+                    pass
+            try:
+                return float(custom_aspect_ratio)
+            except ValueError:
+                return None
+        elif aspect_ratio_preset == "original":
+            return None
+        else:
+            aspect_ratios = {
+                "1:1": 1,
+                "4:3": 4/3,
+                "16:9": 16/9,
+                "2:1": 2
+            }
+            return aspect_ratios.get(aspect_ratio_preset)
+
     def remove_background(self, images, model, alpha_matting, alpha_matting_foreground_threshold, 
                           alpha_matting_background_threshold, post_process_mask, chroma_key, chroma_threshold,
-                          color_tolerance, background_mode, background_loop_mode, background_width, background_height,
-                          output_format="RGBA", input_masks=None, background_images=None, background_color="#000000", 
-                          invert_mask=False, feather_amount=0, edge_detection=False, 
-                          edge_thickness=1, edge_color="#FFFFFF", shadow=False, shadow_blur=5, 
-                          shadow_opacity=0.5, color_adjustment=False, brightness=1.0, contrast=1.0, 
-                          saturation=1.0, x_position=0, y_position=0, rotation=0, opacity=1.0, 
-                          flip_horizontal=False, flip_vertical=False, mask_blur=0, mask_expansion=0,
-                          foreground_scale=None, foreground_aspect_ratio=None):
-        if self.session is None or self.session.model_name != model:
-            self.session = new_session(model)
+                          color_tolerance, background_mode, background_color, background_loop_mode, aspect_ratio_preset,
+                          custom_aspect_ratio, foreground_scale, x_position, y_position, rotation, opacity,
+                          flip_horizontal, flip_vertical, invert_mask, feather_amount, edge_detection,
+                          edge_thickness, edge_color, shadow, shadow_blur, shadow_opacity, color_adjustment,
+                          brightness, contrast, saturation, mask_blur, mask_expansion, input_masks=None,
+                          background_images=None, output_format="RGBA", only_mask=False, custom_model_path=""):
+        
+        if model == "bria":
+            if self.bria_pipeline is None:
+                self.bria_pipeline = pipeline("image-segmentation", model="briaai/RMBG-1.4", trust_remote_code=True)
+        elif self.session is None or self.session.model_name != model:
+            providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if self.use_gpu else ['CPUExecutionProvider']
+            if model == 'u2net_custom' and custom_model_path:
+                self.session = new_session('u2net_custom', model_path=custom_model_path, providers=providers)
+            else:
+                self.session = new_session(model, providers=providers)
 
         bg_color = tuple(int(background_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4)) + (255,)
         edge_color = tuple(int(edge_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+
+        aspect_ratio = self.parse_aspect_ratio(aspect_ratio_preset, custom_aspect_ratio)
 
         def get_background_image(index, total_images):
             if background_images is None or len(background_images) == 0:
@@ -144,7 +181,7 @@ class GeekyRemB:
                     bg_image = background_images[2 * bg_count - forward - 1]
             
             bg_pil = tensor2pil(bg_image)
-            return bg_pil.resize((background_width, background_height), Image.LANCZOS)
+            return bg_pil
 
         def process_single_image(image, input_mask=None, background_image=None):
             pil_image = tensor2pil(image)
@@ -162,16 +199,19 @@ class GeekyRemB:
                 else:
                     input_mask_np = chroma_mask
 
-            removed_bg = remove(
-                pil_image,
-                session=self.session,
-                alpha_matting=alpha_matting,
-                alpha_matting_foreground_threshold=alpha_matting_foreground_threshold,
-                alpha_matting_background_threshold=alpha_matting_background_threshold,
-                post_process_mask=post_process_mask,
-            )
-            
-            rembg_mask = np.array(removed_bg)[:,:,3]
+            if model == "bria":
+                removed_bg = self.bria_pipeline(pil_image, return_mask=True)
+                rembg_mask = np.array(removed_bg)
+            else:
+                removed_bg = remove(
+                    pil_image,
+                    session=self.session,
+                    alpha_matting=alpha_matting,
+                    alpha_matting_foreground_threshold=alpha_matting_foreground_threshold,
+                    alpha_matting_background_threshold=alpha_matting_background_threshold,
+                    post_process_mask=post_process_mask,
+                )
+                rembg_mask = np.array(removed_bg)[:,:,3]
 
             if input_mask_np is not None:
                 final_mask = cv2.bitwise_and(rembg_mask, input_mask_np)
@@ -180,44 +220,38 @@ class GeekyRemB:
 
             final_mask = self.process_mask(final_mask, invert_mask, feather_amount, mask_blur, mask_expansion)
 
-            # Calculate default scale and aspect ratio
-            orig_width, orig_height = pil_image.size
-            default_scale = 1.0
-            default_aspect_ratio = orig_width / orig_height
+            if only_mask:
+                return pil2tensor(Image.fromarray(final_mask)), pil2tensor(Image.fromarray(final_mask))
 
-            # Use provided values or defaults
-            scale = foreground_scale if foreground_scale is not None else default_scale
-            
-            if foreground_aspect_ratio is not None:
-                # User specified an aspect ratio
-                aspect_ratio = foreground_aspect_ratio
-                new_width = int(orig_width * scale)
-                new_height = int(new_width / aspect_ratio)
+            # Calculate dimensions based on aspect ratio
+            orig_width, orig_height = pil_image.size
+            if aspect_ratio is None:
+                new_width, new_height = orig_width, orig_height
             else:
-                # Maintain original aspect ratio
-                new_width = int(orig_width * scale)
-                new_height = int(orig_height * scale)
-                aspect_ratio = new_width / new_height
+                if orig_width / orig_height > aspect_ratio:
+                    new_width = int(orig_height * aspect_ratio)
+                    new_height = orig_height
+                else:
+                    new_width = orig_width
+                    new_height = int(orig_width / aspect_ratio)
+
+            # Apply foreground scaling
+            new_width = int(new_width * foreground_scale)
+            new_height = int(new_height * foreground_scale)
 
             fg_image = pil_image.resize((new_width, new_height), Image.LANCZOS)
             fg_mask = Image.fromarray(final_mask).resize((new_width, new_height), Image.LANCZOS)
 
-            # Determine the output dimensions
-            if background_mode == "transparent":
-                output_width, output_height = new_width, new_height
-            else:
-                output_width, output_height = background_width, background_height
-
             # Create the result image
             if background_mode == "transparent":
-                result = Image.new("RGBA", (output_width, output_height), (0, 0, 0, 0))
+                result = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
             elif background_mode == "color":
-                result = Image.new("RGBA", (output_width, output_height), bg_color)
+                result = Image.new("RGBA", (new_width, new_height), bg_color)
             else:  # background_mode == "image"
                 if background_image is not None:
-                    result = background_image.convert("RGBA").resize((output_width, output_height), Image.LANCZOS)
+                    result = background_image.convert("RGBA").resize((new_width, new_height), Image.LANCZOS)
                 else:
-                    result = Image.new("RGBA", (output_width, output_height), (0, 0, 0, 0))
+                    result = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
 
             # Apply transformations to foreground
             if flip_horizontal:
@@ -231,16 +265,15 @@ class GeekyRemB:
             fg_mask = fg_mask.rotate(rotation, resample=Image.BICUBIC, expand=True)
 
             # Calculate paste position
-            paste_x = x_position + (output_width - fg_image.width) // 2
-            paste_y = y_position + (output_height - fg_image.height) // 2
+            paste_x = x_position + (new_width - fg_image.width) // 2
+            paste_y = y_position + (new_height - fg_image.height) // 2
 
             # Create a new RGBA image for the foreground with correct opacity
             fg_rgba = fg_image.convert("RGBA")
             fg_with_opacity = Image.new("RGBA", fg_rgba.size, (0, 0, 0, 0))
-            for x in range(fg_rgba.width):
-                for y in range(fg_rgba.height):
-                    r, g, b, a = fg_rgba.getpixel((x, y))
-                    fg_with_opacity.putpixel((x, y), (r, g, b, int(a * opacity)))
+            fg_data = fg_rgba.getdata()
+            new_data = [(r, g, b, int(a * opacity)) for r, g, b, a in fg_data]
+            fg_with_opacity.putdata(new_data)
 
             # Create a new mask with the same opacity
             fg_mask_with_opacity = fg_mask.point(lambda p: int(p * opacity))
@@ -251,13 +284,13 @@ class GeekyRemB:
             if edge_detection:
                 edge_mask = cv2.Canny(np.array(fg_mask), 100, 200)
                 edge_mask = cv2.dilate(edge_mask, np.ones((edge_thickness, edge_thickness), np.uint8), iterations=1)
-                edge_overlay = Image.new("RGBA", (output_width, output_height), (0, 0, 0, 0))
+                edge_overlay = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
                 edge_overlay.paste(Image.new("RGB", fg_image.size, edge_color), (paste_x, paste_y), Image.fromarray(edge_mask))
                 result = Image.alpha_composite(result, edge_overlay)
 
             if shadow:
                 shadow_mask = fg_mask.filter(ImageFilter.GaussianBlur(shadow_blur))
-                shadow_image = Image.new("RGBA", (output_width, output_height), (0, 0, 0, 0))
+                shadow_image = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
                 shadow_image.paste((0, 0, 0, int(255 * shadow_opacity)), (paste_x, paste_y), shadow_mask)
                 result = Image.alpha_composite(result, shadow_image.filter(ImageFilter.GaussianBlur(shadow_blur)))
 
@@ -303,6 +336,26 @@ class GeekyRemB:
         except Exception as e:
             logging.error(f"Error during background removal: {str(e)}")
             raise
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("NaN")
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, **kwargs):
+        if kwargs['aspect_ratio_preset'] == 'custom':
+            custom_ratio = kwargs.get('custom_aspect_ratio', '')
+            if not custom_ratio:
+                return "Custom aspect ratio is required when 'custom' is selected."
+            try:
+                if ':' in custom_ratio:
+                    w, h = map(float, custom_ratio.split(':'))
+                    float(w) / float(h)
+                else:
+                    float(custom_ratio)
+            except ValueError:
+                return "Invalid custom aspect ratio. Use format 'width:height' or a decimal value."
+        return True
 
 # Node class mapping
 NODE_CLASS_MAPPINGS = {
