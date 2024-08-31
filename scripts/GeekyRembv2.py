@@ -111,6 +111,22 @@ class GeekyRemB:
     FUNCTION = "process_image"
     CATEGORY = "image/processing"
 
+    def ensure_image_format(self, image):
+        # Convert PIL Image to numpy array
+        img_np = np.array(image)
+        
+        # Ensure the image is in 8-bit format
+        if img_np.dtype != np.uint8:
+            img_np = (img_np * 255).astype(np.uint8)
+        
+        # Convert to RGB if necessary
+        if len(img_np.shape) == 2:  # Grayscale image
+            img_np = cv2.cvtColor(img_np, cv2.COLOR_GRAY2RGB)
+        elif img_np.shape[2] == 4:  # RGBA image
+            img_np = cv2.cvtColor(img_np, cv2.COLOR_RGBA2RGB)
+        
+        return img_np
+
     def apply_chroma_key(self, image, color, threshold, color_tolerance=20):
         hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
         if color == "green":
@@ -209,28 +225,42 @@ class GeekyRemB:
             return image
 
     def apply_toon_filter(self, image, strength):
-        img_np = np.array(image)
+        img_np = self.ensure_image_format(image)
+        
+        # Apply bilateral filter for smoothing
         smooth = cv2.bilateralFilter(img_np, 9, 75, 75)
+        
+        # Convert to grayscale
         gray = cv2.cvtColor(smooth, cv2.COLOR_RGB2GRAY)
+        
+        # Apply median blur
         gray = cv2.medianBlur(gray, 5)
+        
+        # Detect and threshold edges
         edges = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 9, 5)
+        
+        # Combine smooth color image with edges
         cartoon = cv2.bitwise_and(smooth, smooth, mask=edges)
+        
+        # Adjust strength
         cartoon = cv2.convertScaleAbs(cartoon, alpha=strength, beta=0)
+        
+        # Convert back to PIL Image
         return Image.fromarray(cartoon)
 
     def apply_sepia_filter(self, image):
+        img_np = self.ensure_image_format(image)
         sepia_kernel = np.array([
             [0.393, 0.769, 0.189],
             [0.349, 0.686, 0.168],
             [0.272, 0.534, 0.131]
         ])
-        img_np = np.array(image)
         sepia_img = cv2.transform(img_np, sepia_kernel)
         sepia_img = np.clip(sepia_img, 0, 255).astype(np.uint8)
         return Image.fromarray(sepia_img)
 
     def apply_film_grain(self, image, strength):
-        img_np = np.array(image)
+        img_np = self.ensure_image_format(image)
         h, w, c = img_np.shape
         noise = np.random.randn(h, w) * 10 * strength
         noise = np.dstack([noise] * 3)
