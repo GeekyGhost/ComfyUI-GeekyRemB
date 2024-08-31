@@ -235,14 +235,7 @@ class GeekyRemB:
                     new_width = orig_width
                     new_height = int(orig_width / aspect_ratio)
 
-            # Apply foreground scaling
-            new_width = int(new_width * foreground_scale)
-            new_height = int(new_height * foreground_scale)
-
-            fg_image = pil_image.resize((new_width, new_height), Image.LANCZOS)
-            fg_mask = Image.fromarray(final_mask).resize((new_width, new_height), Image.LANCZOS)
-
-            # Create the result image
+            # Create the result image (background)
             if background_mode == "transparent":
                 result = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
             elif background_mode == "color":
@@ -252,6 +245,13 @@ class GeekyRemB:
                     result = background_image.convert("RGBA").resize((new_width, new_height), Image.LANCZOS)
                 else:
                     result = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
+
+            # Apply foreground scaling
+            fg_width = int(new_width * foreground_scale)
+            fg_height = int(new_height * foreground_scale)
+
+            fg_image = pil_image.resize((fg_width, fg_height), Image.LANCZOS)
+            fg_mask = Image.fromarray(final_mask).resize((fg_width, fg_height), Image.LANCZOS)
 
             # Apply transformations to foreground
             if flip_horizontal:
