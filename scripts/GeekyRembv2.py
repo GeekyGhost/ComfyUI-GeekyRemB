@@ -1,6 +1,6 @@
 import numpy as np
 from rembg import remove, new_session
-from PIL import Image, ImageOps, ImageFilter, ImageEnhance
+from PIL import Image, ImageOps, ImageFilter, ImageEnhance, ImageDraw
 import torch
 import logging
 import cv2
@@ -33,6 +33,7 @@ class GeekyRemB:
         return {
             "required": {
                 "images": ("IMAGE",),
+                "enable_background_removal": ("BOOLEAN", {"default": True}),
                 "model": (["u2net", "u2netp", "u2net_human_seg", "u2net_cloth_seg", "silueta", "isnet-general-use", "isnet-anime", "bria", "inspyrenet", "tracer", "basnet", "deeplab", "ormbg", "u2net_custom"],),
                 "alpha_matting": ("BOOLEAN", {"default": False}),
                 "alpha_matting_foreground_threshold": ("INT", {"default": 240, "min": 0, "max": 255, "step": 1}),
@@ -61,10 +62,16 @@ class GeekyRemB:
                 "shadow": ("BOOLEAN", {"default": False}),
                 "shadow_blur": ("INT", {"default": 5, "min": 0, "max": 20, "step": 1}),
                 "shadow_opacity": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.1}),
+                "shadow_direction": ("FLOAT", {"default": 45, "min": 0, "max": 360, "step": 1}),
+                "shadow_distance": ("INT", {"default": 5, "min": 0, "max": 100, "step": 1}),
                 "color_adjustment": ("BOOLEAN", {"default": False}),
                 "brightness": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
                 "contrast": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
                 "saturation": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
+                "hue": ("FLOAT", {"default": 0.0, "min": -0.5, "max": 0.5, "step": 0.01}),
+                "sharpness": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
+                "filter": (["none", "blur", "sharpen", "edge_enhance", "emboss", "toon", "sepia", "film_grain"],),
+                "filter_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
                 "mask_blur": ("INT", {"default": 0, "min": 0, "max": 100, "step": 1}),
                 "mask_expansion": ("INT", {"default": 0, "min": -100, "max": 100, "step": 1}),
             },
@@ -78,7 +85,7 @@ class GeekyRemB:
         }
 
     RETURN_TYPES = ("IMAGE", "MASK")
-    FUNCTION = "remove_background"
+    FUNCTION = "process_image"
     CATEGORY = "image/processing"
 
     def apply_chroma_key(self, image, color, threshold, color_tolerance=20):
@@ -141,24 +148,108 @@ class GeekyRemB:
             }
             return aspect_ratios.get(aspect_ratio_preset)
 
-    def remove_background(self, images, model, alpha_matting, alpha_matting_foreground_threshold, 
-                          alpha_matting_background_threshold, post_process_mask, chroma_key, chroma_threshold,
-                          color_tolerance, background_mode, background_color, background_loop_mode, aspect_ratio_preset,
-                          custom_aspect_ratio, foreground_scale, x_position, y_position, rotation, opacity,
-                          flip_horizontal, flip_vertical, invert_mask, feather_amount, edge_detection,
-                          edge_thickness, edge_color, shadow, shadow_blur, shadow_opacity, color_adjustment,
-                          brightness, contrast, saturation, mask_blur, mask_expansion, input_masks=None,
-                          background_images=None, output_format="RGBA", only_mask=False, custom_model_path=""):
+    def apply_color_adjustments(self, image, brightness, contrast, saturation, hue, sharpness):
+        if brightness != 1.0:
+            image = ImageEnhance.Brightness(image).enhance(brightness)
+        if contrast != 1.0:
+            image = ImageEnhance.Contrast(image).enhance(contrast)
+        if saturation != 1.0:
+            image = ImageEnhance.Color(image).enhance(saturation)
+        if hue != 0.0:
+            r, g, b = image.split()
+            image = Image.merge("RGB", (
+                r.point(lambda x: x + hue * 255),
+                g.point(lambda x: x - hue * 255),
+                b
+            ))
+        if sharpness != 1.0:
+            image = ImageEnhance.Sharpness(image).enhance(sharpness)
+        return image
+
+    def apply_filter(self, image, filter_type, strength):
+        if filter_type == "blur":
+            return image.filter(ImageFilter.GaussianBlur(radius=strength * 2))
+        elif filter_type == "sharpen":
+            # Convert strength to an integer percentage between 100 and 200
+            percent = int(100 + (strength * 100))
+            return image.filter(ImageFilter.UnsharpMask(radius=2, percent=percent, threshold=3))
+        elif filter_type == "edge_enhance":
+            return image.filter(ImageFilter.EDGE_ENHANCE_MORE)
+        elif filter_type == "emboss":
+            return image.filter(ImageFilter.EMBOSS)
+        elif filter_type == "toon":
+            return self.apply_toon_filter(image, strength)
+        elif filter_type == "sepia":
+            return self.apply_sepia_filter(image)
+        elif filter_type == "film_grain":
+            return self.apply_film_grain(image, strength)
+        else:
+            return image
+
+    def apply_toon_filter(self, image, strength):
+        # Convert to numpy array
+        img_np = np.array(image)
         
-        if model == "bria":
-            if self.bria_pipeline is None:
-                self.bria_pipeline = pipeline("image-segmentation", model="briaai/RMBG-1.4", trust_remote_code=True)
-        elif self.session is None or self.session.model_name != model:
-            providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if self.use_gpu else ['CPUExecutionProvider']
-            if model == 'u2net_custom' and custom_model_path:
-                self.session = new_session('u2net_custom', model_path=custom_model_path, providers=providers)
-            else:
-                self.session = new_session(model, providers=providers)
+        # Apply bilateral filter for edge-preserving smoothing
+        smooth = cv2.bilateralFilter(img_np, 9, 75, 75)
+        
+        # Convert to grayscale
+        gray = cv2.cvtColor(smooth, cv2.COLOR_RGB2GRAY)
+        
+        # Apply median blur
+        gray = cv2.medianBlur(gray, 5)
+        
+        # Detect and enhance edges
+        edges = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 9, 5)
+        
+        # Combine edges with color image
+        cartoon = cv2.bitwise_and(smooth, smooth, mask=edges)
+        
+        # Reduce color palette
+        cartoon = cv2.convertScaleAbs(cartoon, alpha=strength, beta=0)
+        
+        # Convert back to PIL Image
+        return Image.fromarray(cartoon)
+
+    def apply_sepia_filter(self, image):
+        sepia_kernel = np.array([
+            [0.393, 0.769, 0.189],
+            [0.349, 0.686, 0.168],
+            [0.272, 0.534, 0.131]
+        ])
+        img_np = np.array(image)
+        sepia_img = cv2.transform(img_np, sepia_kernel)
+        sepia_img = np.clip(sepia_img, 0, 255).astype(np.uint8)
+        return Image.fromarray(sepia_img)
+
+    def apply_film_grain(self, image, strength):
+        img_np = np.array(image)
+        h, w, c = img_np.shape
+        noise = np.random.randn(h, w) * 10 * strength
+        noise = np.dstack([noise] * 3)
+        grain_img = np.clip(img_np + noise, 0, 255).astype(np.uint8)
+        return Image.fromarray(grain_img)
+
+    def process_image(self, images, enable_background_removal, model, alpha_matting, alpha_matting_foreground_threshold, 
+                      alpha_matting_background_threshold, post_process_mask, chroma_key, chroma_threshold,
+                      color_tolerance, background_mode, background_color, background_loop_mode, aspect_ratio_preset,
+                      custom_aspect_ratio, foreground_scale, x_position, y_position, rotation, opacity,
+                      flip_horizontal, flip_vertical, invert_mask, feather_amount, edge_detection,
+                      edge_thickness, edge_color, shadow, shadow_blur, shadow_opacity, shadow_direction, shadow_distance,
+                      color_adjustment, brightness, contrast, saturation, hue, sharpness,
+                      filter, filter_strength, mask_blur, mask_expansion, input_masks=None,
+                      background_images=None, output_format="RGBA", only_mask=False, custom_model_path=""):
+        
+        if enable_background_removal:
+            if model == "bria":
+                if self.bria_pipeline is None:
+                    self.bria_pipeline = pipeline("image-segmentation", model="briaai/RMBG-1.4", trust_remote_code=True)
+            elif self.session is None or self.session.model_name != model:
+                providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if self.use_gpu else ['CPUExecutionProvider']
+                if model == 'u2net_custom' and custom_model_path:
+                    self.session = new_session('u2net_custom', model_path=custom_model_path, providers=providers)
+                else:
+                    self.session = new_session(model, providers=providers)
 
         bg_color = background_color
         edge_color = edge_color
@@ -192,33 +283,39 @@ class GeekyRemB:
             else:
                 input_mask_np = None
 
-            if chroma_key != "none":
-                chroma_mask = self.apply_chroma_key(original_image, chroma_key, chroma_threshold, color_tolerance)
-                if input_mask_np is not None:
-                    input_mask_np = cv2.bitwise_and(input_mask_np, chroma_mask)
+            if enable_background_removal:
+                if chroma_key != "none":
+                    chroma_mask = self.apply_chroma_key(original_image, chroma_key, chroma_threshold, color_tolerance)
+                    if input_mask_np is not None:
+                        input_mask_np = cv2.bitwise_and(input_mask_np, chroma_mask)
+                    else:
+                        input_mask_np = chroma_mask
+
+                if model == "bria":
+                    removed_bg = self.bria_pipeline(pil_image, return_mask=True)
+                    rembg_mask = np.array(removed_bg)
                 else:
-                    input_mask_np = chroma_mask
+                    removed_bg = remove(
+                        pil_image,
+                        session=self.session,
+                        alpha_matting=alpha_matting,
+                        alpha_matting_foreground_threshold=alpha_matting_foreground_threshold,
+                        alpha_matting_background_threshold=alpha_matting_background_threshold,
+                        post_process_mask=post_process_mask,
+                    )
+                    rembg_mask = np.array(removed_bg)[:,:,3]
 
-            if model == "bria":
-                removed_bg = self.bria_pipeline(pil_image, return_mask=True)
-                rembg_mask = np.array(removed_bg)
+                if input_mask_np is not None:
+                    final_mask = cv2.bitwise_and(rembg_mask, input_mask_np)
+                else:
+                    final_mask = rembg_mask
+
+                final_mask = self.process_mask(final_mask, invert_mask, feather_amount, mask_blur, mask_expansion)
             else:
-                removed_bg = remove(
-                    pil_image,
-                    session=self.session,
-                    alpha_matting=alpha_matting,
-                    alpha_matting_foreground_threshold=alpha_matting_foreground_threshold,
-                    alpha_matting_background_threshold=alpha_matting_background_threshold,
-                    post_process_mask=post_process_mask,
-                )
-                rembg_mask = np.array(removed_bg)[:,:,3]
-
-            if input_mask_np is not None:
-                final_mask = cv2.bitwise_and(rembg_mask, input_mask_np)
-            else:
-                final_mask = rembg_mask
-
-            final_mask = self.process_mask(final_mask, invert_mask, feather_amount, mask_blur, mask_expansion)
+                if input_mask_np is not None:
+                    final_mask = input_mask_np
+                else:
+                    final_mask = np.full(pil_image.size[::-1], 255, dtype=np.uint8)
 
             if only_mask:
                 return pil2tensor(Image.fromarray(final_mask)), pil2tensor(Image.fromarray(final_mask))
@@ -268,6 +365,13 @@ class GeekyRemB:
             paste_x = x_position + (new_width - fg_image.width) // 2
             paste_y = y_position + (new_height - fg_image.height) // 2
 
+            # Apply color adjustments and filters
+            if color_adjustment:
+                fg_image = self.apply_color_adjustments(fg_image, brightness, contrast, saturation, hue, sharpness)
+            
+            if filter != "none":
+                fg_image = self.apply_filter(fg_image, filter, filter_strength)
+
             # Create a new RGBA image for the foreground with correct opacity
             fg_rgba = fg_image.convert("RGBA")
             fg_with_opacity = Image.new("RGBA", fg_rgba.size, (0, 0, 0, 0))
@@ -278,6 +382,15 @@ class GeekyRemB:
             # Create a new mask with the same opacity
             fg_mask_with_opacity = fg_mask.point(lambda p: int(p * opacity))
 
+            # Apply shadow
+            if shadow:
+                shadow_x = int(shadow_distance * np.cos(np.radians(shadow_direction)))
+                shadow_y = int(shadow_distance * np.sin(np.radians(shadow_direction)))
+                shadow_image = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
+                shadow_mask = fg_mask.filter(ImageFilter.GaussianBlur(shadow_blur))
+                shadow_image.paste((0, 0, 0, int(255 * shadow_opacity)), (paste_x + shadow_x, paste_y + shadow_y), shadow_mask)
+                result = Image.alpha_composite(result, shadow_image)
+
             # Paste foreground onto result
             result.paste(fg_with_opacity, (paste_x, paste_y), fg_mask_with_opacity)
 
@@ -287,20 +400,6 @@ class GeekyRemB:
                 edge_overlay = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
                 edge_overlay.paste(Image.new("RGB", fg_image.size, edge_color), (paste_x, paste_y), Image.fromarray(edge_mask))
                 result = Image.alpha_composite(result, edge_overlay)
-
-            if shadow:
-                shadow_mask = fg_mask.filter(ImageFilter.GaussianBlur(shadow_blur))
-                shadow_image = Image.new("RGBA", (new_width, new_height), (0, 0, 0, 0))
-                shadow_image.paste((0, 0, 0, int(255 * shadow_opacity)), (paste_x, paste_y), shadow_mask)
-                result = Image.alpha_composite(result, shadow_image.filter(ImageFilter.GaussianBlur(shadow_blur)))
-
-            if color_adjustment:
-                enhancer = ImageEnhance.Brightness(result)
-                result = enhancer.enhance(brightness)
-                enhancer = ImageEnhance.Contrast(result)
-                result = enhancer.enhance(contrast)
-                enhancer = ImageEnhance.Color(result)
-                result = enhancer.enhance(saturation)
 
             if output_format == "RGB":
                 result = result.convert("RGB")
@@ -313,7 +412,7 @@ class GeekyRemB:
             processed_masks = []
             logging.info(f"Processing {batch_size} images")
             
-            for i in tqdm(range(batch_size), desc="Removing backgrounds"):
+            for i in tqdm(range(batch_size), desc="Processing images"):
                 single_image = images[i:i+1]
                 single_input_mask = input_masks[i:i+1] if input_masks is not None else None
                 single_background_image = get_background_image(i, batch_size)
@@ -334,7 +433,7 @@ class GeekyRemB:
             return (stacked_images, stacked_masks)
         
         except Exception as e:
-            logging.error(f"Error during background removal: {str(e)}")
+            logging.error(f"Error during image processing: {str(e)}")
             raise
 
     @classmethod
