@@ -4,3 +4,5 @@ Pillow
 torch
 opencv-python
 tqdm
+onnxruntime
+transformers
