@@ -7,6 +7,7 @@ import cv2
 from tqdm import tqdm
 import onnxruntime as ort
 from transformers import pipeline
+from enum import Enum
 
 logging.basicConfig(level=logging.INFO)
 
@@ -20,6 +21,26 @@ def pil2tensor(image):
     elif np_image.ndim == 3:  # If it's an RGB image
         np_image = np_image[None, ...]  # Add batch dimension
     return torch.from_numpy(np_image)
+
+class BlendingMode(Enum):
+    NORMAL = "normal"
+    MULTIPLY = "multiply"
+    SCREEN = "screen"
+    OVERLAY = "overlay"
+    DARKEN = "darken"
+    LIGHTEN = "lighten"
+    COLOR_DODGE = "color_dodge"
+    COLOR_BURN = "color_burn"
+    LINEAR_DODGE = "linear_dodge"
+    LINEAR_BURN = "linear_burn"
+    HARD_LIGHT = "hard_light"
+    SOFT_LIGHT = "soft_light"
+    VIVID_LIGHT = "vivid_light"
+    LINEAR_LIGHT = "linear_light"
+    PIN_LIGHT = "pin_light"
+    DIFFERENCE = "difference"
+    EXCLUSION = "exclusion"
+    SUBTRACT = "subtract"
 
 class GeekyRemB:
     def __init__(self):
@@ -45,6 +66,8 @@ class GeekyRemB:
                 "background_mode": (["transparent", "color", "image"],),
                 "background_color": ("COLOR", {"default": "#000000"}),
                 "background_loop_mode": (["reverse", "loop"],),
+                "blending_mode": ([mode.value for mode in BlendingMode],),
+                "blend_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "aspect_ratio_preset": (["original", "1:1", "4:3", "16:9", "2:1", "custom"],),
                 "custom_aspect_ratio": ("STRING", {"default": ""}),
                 "foreground_scale": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 5.0, "step": 0.1}),
@@ -170,7 +193,6 @@ class GeekyRemB:
         if filter_type == "blur":
             return image.filter(ImageFilter.GaussianBlur(radius=strength * 2))
         elif filter_type == "sharpen":
-            # Convert strength to an integer percentage between 100 and 200
             percent = int(100 + (strength * 100))
             return image.filter(ImageFilter.UnsharpMask(radius=2, percent=percent, threshold=3))
         elif filter_type == "edge_enhance":
@@ -187,28 +209,13 @@ class GeekyRemB:
             return image
 
     def apply_toon_filter(self, image, strength):
-        # Convert to numpy array
         img_np = np.array(image)
-        
-        # Apply bilateral filter for edge-preserving smoothing
         smooth = cv2.bilateralFilter(img_np, 9, 75, 75)
-        
-        # Convert to grayscale
         gray = cv2.cvtColor(smooth, cv2.COLOR_RGB2GRAY)
-        
-        # Apply median blur
         gray = cv2.medianBlur(gray, 5)
-        
-        # Detect and enhance edges
         edges = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 9, 5)
-        
-        # Combine edges with color image
         cartoon = cv2.bitwise_and(smooth, smooth, mask=edges)
-        
-        # Reduce color palette
         cartoon = cv2.convertScaleAbs(cartoon, alpha=strength, beta=0)
-        
-        # Convert back to PIL Image
         return Image.fromarray(cartoon)
 
     def apply_sepia_filter(self, image):
@@ -230,11 +237,83 @@ class GeekyRemB:
         grain_img = np.clip(img_np + noise, 0, 255).astype(np.uint8)
         return Image.fromarray(grain_img)
 
+    def apply_blending_mode(self, bg, fg, mode, strength):
+        bg_np = np.array(bg).astype(np.float32) / 255.0
+        fg_np = np.array(fg).astype(np.float32) / 255.0
+
+        # Ensure both images have an alpha channel
+        if bg_np.shape[-1] == 3:
+            bg_np = np.dstack([bg_np, np.ones(bg_np.shape[:2], dtype=np.float32)])
+        if fg_np.shape[-1] == 3:
+            fg_np = np.dstack([fg_np, np.ones(fg_np.shape[:2], dtype=np.float32)])
+
+        # Separate color and alpha channels
+        bg_rgb, bg_a = bg_np[..., :3], bg_np[..., 3]
+        fg_rgb, fg_a = fg_np[..., :3], fg_np[..., 3]
+
+        if mode == BlendingMode.NORMAL.value:
+            blended_rgb = fg_rgb
+        elif mode == BlendingMode.MULTIPLY.value:
+            blended_rgb = bg_rgb * fg_rgb
+        elif mode == BlendingMode.SCREEN.value:
+            blended_rgb = 1 - (1 - bg_rgb) * (1 - fg_rgb)
+        elif mode == BlendingMode.OVERLAY.value:
+            blended_rgb = np.where(bg_rgb <= 0.5, 2 * bg_rgb * fg_rgb, 1 - 2 * (1 - bg_rgb) * (1 - fg_rgb))
+        elif mode == BlendingMode.DARKEN.value:
+            blended_rgb = np.minimum(bg_rgb, fg_rgb)
+        elif mode == BlendingMode.LIGHTEN.value:
+            blended_rgb = np.maximum(bg_rgb, fg_rgb)
+        elif mode == BlendingMode.COLOR_DODGE.value:
+            blended_rgb = np.where(fg_rgb == 1, 1, np.minimum(1, bg_rgb / (1 - fg_rgb)))
+        elif mode == BlendingMode.COLOR_BURN.value:
+            blended_rgb = np.where(fg_rgb == 0, 0, np.maximum(0, 1 - (1 - bg_rgb) / fg_rgb))
+        elif mode == BlendingMode.LINEAR_DODGE.value:
+            blended_rgb = np.minimum(1, bg_rgb + fg_rgb)
+        elif mode == BlendingMode.LINEAR_BURN.value:
+            blended_rgb = np.maximum(0, bg_rgb + fg_rgb - 1)
+        elif mode == BlendingMode.HARD_LIGHT.value:
+            blended_rgb = np.where(fg_rgb <= 0.5, 2 * bg_rgb * fg_rgb, 1 - 2 * (1 - bg_rgb) * (1 - fg_rgb))
+        elif mode == BlendingMode.SOFT_LIGHT.value:
+            blended_rgb = np.where(fg_rgb <= 0.5,
+                                   bg_rgb - (1 - 2 * fg_rgb) * bg_rgb * (1 - bg_rgb),
+                                   bg_rgb + (2 * fg_rgb - 1) * (np.sqrt(bg_rgb) - bg_rgb))
+        elif mode == BlendingMode.VIVID_LIGHT.value:
+            blended_rgb = np.where(fg_rgb <= 0.5,
+                                   np.where(fg_rgb == 0, 0, np.maximum(0, 1 - (1 - bg_rgb) / (2 * fg_rgb))),
+                                   np.where(fg_rgb == 1, 1, np.minimum(1, bg_rgb / (2 * (1 - fg_rgb)))))
+        elif mode == BlendingMode.LINEAR_LIGHT.value:
+            blended_rgb = np.clip(bg_rgb + 2 * fg_rgb - 1, 0, 1)
+        elif mode == BlendingMode.PIN_LIGHT.value:
+            blended_rgb = np.where(fg_rgb <= 0.5, np.minimum(bg_rgb, 2 * fg_rgb), np.maximum(bg_rgb, 2 * fg_rgb - 1))
+        elif mode == BlendingMode.DIFFERENCE.value:
+            blended_rgb = np.abs(bg_rgb - fg_rgb)
+        elif mode == BlendingMode.EXCLUSION.value:
+            blended_rgb = bg_rgb + fg_rgb - 2 * bg_rgb * fg_rgb
+        elif mode == BlendingMode.SUBTRACT.value:
+            blended_rgb = np.maximum(0, bg_rgb - fg_rgb)
+        else:
+            blended_rgb = fg_rgb
+
+        # Apply blend strength
+        blended_rgb = blended_rgb * strength + bg_rgb * (1 - strength)
+
+        # Combine alpha channels
+        blended_a = fg_a * strength + bg_a * (1 - strength)
+
+        # Combine blended RGB with alpha
+        blended = np.dstack([blended_rgb, blended_a])
+
+        # Convert back to the original format
+        if bg_np.shape[-1] == 3:
+            blended = blended[..., :3]
+
+        return Image.fromarray((blended * 255.0).astype(np.uint8))
+
     def process_image(self, images, enable_background_removal, model, alpha_matting, alpha_matting_foreground_threshold, 
                       alpha_matting_background_threshold, post_process_mask, chroma_key, chroma_threshold,
-                      color_tolerance, background_mode, background_color, background_loop_mode, aspect_ratio_preset,
-                      custom_aspect_ratio, foreground_scale, x_position, y_position, rotation, opacity,
-                      flip_horizontal, flip_vertical, invert_mask, feather_amount, edge_detection,
+                      color_tolerance, background_mode, background_color, background_loop_mode, blending_mode,
+                      blend_strength, aspect_ratio_preset, custom_aspect_ratio, foreground_scale, x_position, y_position,
+                      rotation, opacity, flip_horizontal, flip_vertical, invert_mask, feather_amount, edge_detection,
                       edge_thickness, edge_color, shadow, shadow_blur, shadow_opacity, shadow_direction, shadow_distance,
                       color_adjustment, brightness, contrast, saturation, hue, sharpness,
                       filter, filter_strength, mask_blur, mask_expansion, input_masks=None,
@@ -372,10 +451,14 @@ class GeekyRemB:
             if filter != "none":
                 fg_image = self.apply_filter(fg_image, filter, filter_strength)
 
+            # Apply blending mode
+            bg_subset = result.crop((paste_x, paste_y, paste_x + fg_image.width, paste_y + fg_image.height))
+            blended = self.apply_blending_mode(bg_subset, fg_image, blending_mode, blend_strength)
+
             # Create a new RGBA image for the foreground with correct opacity
-            fg_rgba = fg_image.convert("RGBA")
-            fg_with_opacity = Image.new("RGBA", fg_rgba.size, (0, 0, 0, 0))
-            fg_data = fg_rgba.getdata()
+            blended_rgba = blended.convert("RGBA")
+            fg_with_opacity = Image.new("RGBA", blended_rgba.size, (0, 0, 0, 0))
+            fg_data = blended_rgba.getdata()
             new_data = [(r, g, b, int(a * opacity)) for r, g, b, a in fg_data]
             fg_with_opacity.putdata(new_data)
 
@@ -454,6 +537,11 @@ class GeekyRemB:
                     float(custom_ratio)
             except ValueError:
                 return "Invalid custom aspect ratio. Use format 'width:height' or a decimal value."
+        
+        if kwargs.get('enable_background_removal', False) and kwargs.get('model') == 'u2net_custom':
+            if not kwargs.get('custom_model_path'):
+                return "Custom model path is required when using 'u2net_custom' model."
+        
         return True
 
 # Node class mapping
