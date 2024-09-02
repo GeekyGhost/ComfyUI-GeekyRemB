@@ -1,4 +1,5 @@
 # GeekyRemB: Advanced Background Removal and Image Processing Node for ComfyUI
+Note, with the most recent update, most new features work, some do not, bear with me please as I make us something that doesn't currently exist lol. 
 
 ## Table of Contents
 1. [Overview](#overview)
