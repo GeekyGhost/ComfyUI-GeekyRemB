@@ -556,7 +556,7 @@ By following these practices and continually refining the code structure, the Ge
 Inspired by tools found in [WAS Node Suite for ComfyUI](https://github.com/WASasquatch/was-node-suite-comfyui.git)
 
 
-
+"Note: The 'bria' model is included for its good performance, but please be aware that it requires a license for commercial use. Ensure you have the appropriate licensing if you intend to use this model commercially."
 
 <img width="725" alt="Screenshot 2024-07-18 182336" src="https://github.com/user-attachments/assets/dff53dd1-ff4f-48b2-8a96-5f8443cac251">
 
