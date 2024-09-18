@@ -37,7 +37,10 @@ class GeekyRemB:
                 "foreground": ("IMAGE",),
                 "enable_background_removal": ("BOOLEAN", {"default": True}),
                 "removal_method": (["rembg", "chroma_key"],),
-                "model": (["u2net", "u2netp", "u2net_human_seg", "silueta", "isnet-general-use"],),
+                "model": ([
+                    "u2net", "u2netp", "u2net_human_seg", "u2net_cloth_seg",
+                    "silueta", "isnet-general-use", "isnet-anime"
+                ],),
                 "chroma_key_color": (["green", "blue", "red"],),
                 "chroma_key_tolerance": ("FLOAT", {"default": 0.1, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "mask_expansion": ("INT", {"default": 0, "min": -100, "max": 100, "step": 1}),
@@ -182,34 +185,41 @@ class GeekyRemB:
         new_size = (int(orig_width * scale), int(orig_height * scale))
         element = element.resize(new_size, Image.LANCZOS)
         
-        # Apply rotation
-        element = element.rotate(rotation, resample=Image.BICUBIC, expand=True)
+        # Create a new transparent image for rotation
+        rotated = Image.new('RGBA', element.size, (0, 0, 0, 0))
+        
+        # Paste the element onto the center of the new image
+        rotated.paste(element, (0, 0), element)
+        
+        # Apply rotation from the center of the foreground image
+        if rotation != 0:
+            rotated = rotated.rotate(rotation, resample=Image.BICUBIC, expand=True, center=(rotated.width // 2, rotated.height // 2))
         
         if animation_type == AnimationType.BOUNCE.value:
             y_offset = int(math.sin(progress * 2 * math.pi) * animation_speed * 50)
             x, y = x_start, y_start + y_offset
         elif animation_type == AnimationType.TRAVEL_LEFT.value:
-            x = int(canvas_width - (canvas_width + element.width) * progress)
+            x = int(canvas_width - (canvas_width + rotated.width) * progress)
             y = y_start
         elif animation_type == AnimationType.TRAVEL_RIGHT.value:
-            x = int(-element.width + (canvas_width + element.width) * progress)
+            x = int(-rotated.width + (canvas_width + rotated.width) * progress)
             y = y_start
         elif animation_type == AnimationType.ROTATE.value:
             angle = progress * 360 * animation_speed
-            element = element.rotate(angle, resample=Image.BICUBIC, expand=True)
+            rotated = rotated.rotate(angle, resample=Image.BICUBIC, expand=True, center=(rotated.width // 2, rotated.height // 2))
             x, y = x_start, y_start
         elif animation_type == AnimationType.FADE_IN.value:
             x, y = x_start, y_start
             opacity = int(progress * 255)
-            r, g, b, a = element.split()
+            r, g, b, a = rotated.split()
             a = a.point(lambda i: i * opacity // 255)
-            element = Image.merge('RGBA', (r, g, b, a))
+            rotated = Image.merge('RGBA', (r, g, b, a))
         elif animation_type == AnimationType.FADE_OUT.value:
             x, y = x_start, y_start
             opacity = int((1 - progress) * 255)
-            r, g, b, a = element.split()
+            r, g, b, a = rotated.split()
             a = a.point(lambda i: i * opacity // 255)
-            element = Image.merge('RGBA', (r, g, b, a))
+            rotated = Image.merge('RGBA', (r, g, b, a))
         elif animation_type == AnimationType.ZOOM_IN.value or animation_type == AnimationType.ZOOM_OUT.value:
             if animation_type == AnimationType.ZOOM_IN.value:
                 zoom_scale = 1 + progress * animation_speed
@@ -219,7 +229,7 @@ class GeekyRemB:
             new_width = int(orig_width * scale * zoom_scale)
             new_height = int(orig_height * scale * zoom_scale)
             
-            element = element.resize((new_width, new_height), Image.LANCZOS)
+            rotated = rotated.resize((new_width, new_height), Image.LANCZOS)
             
             # Calculate the crop box to keep the center of the original image
             left = (new_width - orig_width * scale) / 2
@@ -227,12 +237,12 @@ class GeekyRemB:
             right = left + orig_width * scale
             bottom = top + orig_height * scale
             
-            element = element.crop((left, top, right, bottom))
+            rotated = rotated.crop((left, top, right, bottom))
             x, y = x_start, y_start
         else:  # NONE
             x, y = x_start, y_start
 
-        return element, x, y
+        return rotated, x, y
 
     def process_image(self, foreground, enable_background_removal, removal_method, model, chroma_key_color,
                       chroma_key_tolerance, mask_expansion, edge_detection, edge_thickness, mask_blur, threshold,
@@ -285,8 +295,11 @@ class GeekyRemB:
                             additional_mask_pil = ImageOps.invert(additional_mask_pil)
                         mask = Image.fromarray(np.minimum(np.array(mask), np.array(additional_mask_pil)))
                     
-                    # Apply the mask to remove the background
-                    fg_frame.putalpha(mask)
+                    # Apply a slight Gaussian blur to the mask for smoother edges
+                    mask = mask.filter(ImageFilter.GaussianBlur(radius=1))
+                    
+                    # Apply the mask to remove the background with premultiplied alpha
+                    fg_frame = Image.composite(fg_frame, Image.new('RGBA', fg_frame.size, (0, 0, 0, 0)), mask)
                 else:
                     mask = Image.new('L', fg_frame.size, 255)
 
@@ -294,7 +307,7 @@ class GeekyRemB:
                     bg_index = frame % len(bg_frames)
                     result = bg_frames[bg_index].copy().convert('RGBA')
                 else:
-                    result = Image.new("RGBA", fg_frame.size, (0, 0, 0, 0))
+                    result = Image.new("RGBA", fg_frame.size, (0, 0, 0, 0))  # Transparent background
 
                 animated_fg, x, y = self.animate_element(
                     fg_frame, animation_type, animation_speed, frame, animation_frames,
@@ -303,7 +316,7 @@ class GeekyRemB:
 
                 # Composite the animated foreground onto the background
                 result.alpha_composite(animated_fg, (int(x), int(y)))
-                animated_frames.append(pil2tensor(result.convert('RGB')))
+                animated_frames.append(pil2tensor(result))  # Keep RGBA format
                 masks.append(pil2tensor(mask.convert('L')))
 
             return (torch.cat(animated_frames, dim=0), torch.cat(masks, dim=0))
