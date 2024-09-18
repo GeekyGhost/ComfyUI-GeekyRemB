@@ -1,67 +1,33 @@
 # GeekyRemB: Advanced Background Removal and Image Processing Node for ComfyUI
 
-GeekyRemB is a powerful custom node for ComfyUI that offers advanced background removal and comprehensive image processing capabilities. It combines state-of-the-art AI models with traditional image processing techniques to provide a versatile tool for various image manipulation tasks.
+GeekyRemB is a powerful custom node for ComfyUI that offers advanced background removal, image processing, and animation capabilities. It combines state-of-the-art AI models with traditional image processing techniques to provide a versatile tool for complex image manipulation tasks.
 
 ## Table of Contents
 1. [Features](#features)
 2. [Installation](#installation)
 3. [Usage](#usage)
-4. [Key Components](#key-components)
-5. [Advanced Features](#advanced-features)
-6. [Performance Considerations](#performance-considerations)
-7. [Extensibility](#extensibility)
-8. [Examples](#examples)
-9. [Troubleshooting](#troubleshooting)
-10. [Contributing](#contributing)
-11. [License](#license)
-12. [Acknowledgements](#acknowledgements)
+4. [Advanced Usage](#advanced-usage)
+5. [Developer's Guide](#developers-guide)
+6. [Contributing](#contributing)
+7. [License](#license)
+8. [Acknowledgements](#acknowledgements)
 
 ## Features
 
-1. **Advanced Background Removal**
-   - Multiple AI models: u2net, u2netp, u2net_human_seg, silueta, isnet-general-use, isnet-anime, bria, birefnet
-   - Chroma key functionality for color-based removal
-   - Alpha matting for improved edge detection
-
-2. **Image Composition**
-   - Flexible scaling, positioning, and rotation
-   - Aspect ratio control
-   - Flip horizontal and vertical options
-
-3. **Mask Processing**
-   - Mask inversion, feathering, blurring, and expansion
-   - Edge detection with customizable thickness and color
-
-4. **Color Adjustments and Filters**
-   - Brightness, contrast, saturation, hue, and sharpness adjustments
-   - Various filters: blur, sharpen, edge enhance, emboss, toon, sepia, film grain, matrix effect
-
-5. **Blending Modes**
-   - Multiple blending modes for creative compositing
-   - Adjustable blend strength
-
-6. **Shadow Effects**
-   - Customizable shadow with adjustable blur, opacity, direction, and distance
-
-7. **Animation Capabilities**
-   - Various animation types: bounce, travel, rotate, fade, zoom
-   - Adjustable animation speed and frame count
-
-8. **Matrix Background Generation**
-   - Customizable matrix rain effect
-   - Options for foreground pattern, density, fall speed, and glow
-
-9. **Batch Processing**
-   - Support for processing multiple images in a batch
-
-10. **Output Options**
-    - Choice between RGBA and RGB output formats
-    - Option to output only the generated mask
+- Advanced background removal using multiple AI models (u2net, u2netp, u2net_human_seg, u2net_cloth_seg, silueta, isnet-general-use, isnet-anime)
+- Chroma key functionality for color-based removal
+- Comprehensive mask processing (expansion, edge detection, blurring, thresholding)
+- Flexible image composition with scaling, positioning, and rotation
+- Multiple animation types (bounce, travel, rotate, fade, zoom)
+- Support for batch processing and handling multiple frames
+- Alpha matting for improved edge detection
+- Ability to remove small regions from the mask
+- Option to use additional masks and invert them
 
 ## Installation
 
-1. Navigate to your ComfyUI custom nodes directory.
-2. Clone this repository:
+1. Ensure you have ComfyUI installed and set up.
+2. Clone the GeekyRemB repository into your ComfyUI custom nodes directory:
    ```
    git clone https://github.com/YourUsername/ComfyUI-GeekyRemB.git
    ```
@@ -73,70 +39,113 @@ GeekyRemB is a powerful custom node for ComfyUI that offers advanced background 
 
 ## Usage
 
+### Basic Usage
+
 1. In ComfyUI, locate the "GeekyRemB" node in the node browser.
 2. Connect your input image to the "foreground" input of the GeekyRemB node.
-3. Adjust the parameters as needed:
-   - Choose a background removal method and model
-   - Set composition options (scale, position, rotation)
-   - Apply color adjustments and filters
-   - Configure animation settings if desired
-4. Connect the output to your desired destination node (e.g., Save Image, Preview Image).
+3. Configure the node parameters according to your needs (see Parameter Details below).
+4. Connect the outputs to your desired destination nodes (e.g., Save Image, Preview Image).
 
-## Key Components
+### Parameter Details
 
-- **Background Removal**: Choose between AI-based removal (using models like u2net) or chroma key.
-- **Mask Refinement**: Fine-tune the generated mask with expansion, blurring, and feathering options.
-- **Composition Tools**: Precise control over image placement, scaling, and rotation.
-- **Color and Filter Effects**: Enhance or stylize your images with various adjustments and filters.
-- **Animation**: Create dynamic effects with multiple animation types.
-- **Matrix Background**: Generate custom Matrix-style rain effect backgrounds.
+- **enable_background_removal**: Toggle background removal on/off.
+- **removal_method**: Choose between "rembg" (AI-based) or "chroma_key".
+- **model**: Select the AI model for background removal (if using "rembg").
+- **chroma_key_color**: Select the color to be removed (if using "chroma_key").
+- **chroma_key_tolerance**: Adjust the tolerance for chroma keying.
+- **mask_expansion**: Expand or contract the mask (-100 to 100).
+- **edge_detection**: Enable edge detection on the mask.
+- **edge_thickness**: Set the thickness of detected edges (1-10).
+- **mask_blur**: Apply Gaussian blur to the mask (0-100).
+- **threshold**: Set the threshold for mask generation (0.0-1.0).
+- **invert_generated_mask**: Invert the generated mask.
+- **remove_small_regions**: Remove small isolated regions from the mask.
+- **small_region_size**: Set the size threshold for small region removal.
+- **alpha_matting**: Enable alpha matting for improved edge detection.
+- **alpha_matting_foreground_threshold**: Set foreground threshold for alpha matting.
+- **alpha_matting_background_threshold**: Set background threshold for alpha matting.
+- **animation_type**: Choose the type of animation to apply.
+- **animation_speed**: Set the speed of the animation.
+- **animation_frames**: Set the number of frames for the animation.
+- **x_position**, **y_position**: Set the position of the foreground image.
+- **scale**: Scale the foreground image.
+- **rotation**: Rotate the foreground image.
 
-## Advanced Features
+### Optional Inputs
 
-- **Alpha Matting**: Improve edge detection for complex images like hair or fur.
-- **Custom Aspect Ratios**: Define your own aspect ratios for precise composition.
-- **Blending Modes**: Experiment with different blending modes for creative effects.
-- **Shadow Generation**: Add realistic shadows to composited images.
-- **Batch Processing**: Efficiently process multiple images or create animations.
+- **background**: Connect a background image or sequence.
+- **additional_mask**: Provide an additional mask to combine with the generated one.
+- **invert_additional_mask**: Invert the additional mask before combining.
 
-## Performance Considerations
+## Advanced Usage
 
-- GPU acceleration is automatically used when available for faster processing.
-- Efficient NumPy operations are used for image manipulations.
-- Caching mechanisms are implemented to avoid reloading models for repeated use.
+### Handling Multiple Frames
 
-## Extensibility
+GeekyRemB can process multiple input frames, useful for creating animations or batch processing:
 
-Developers can extend GeekyRemB by:
-- Adding new background removal models
-- Implementing additional blending modes
-- Creating new filters and effects
-- Expanding animation capabilities
+1. Connect a sequence of images to the "foreground" input.
+2. Set the "animation_frames" parameter to the desired number of output frames.
+3. Choose an animation type or set it to "none" for static processing of each frame.
 
-Refer to the developer guide in the documentation for detailed instructions on extending functionality.
+### Combining Multiple Masks
 
-## Examples
+To use an additional mask with the generated one:
 
+1. Connect your mask to the "additional_mask" input.
+2. The node will combine this mask with the generated one using the minimum operation.
+3. Use "invert_additional_mask" if you need to invert the additional mask before combining.
 
+### Creating Complex Animations
 
-https://github.com/user-attachments/assets/3405d87f-cb67-4875-a121-7b9bbfcc8d8c
+Experiment with different animation types and parameters to create complex effects:
 
-https://github.com/user-attachments/assets/a5de952c-6411-4932-a074-3b64a503c4f8
+1. Set "animation_type" to your desired animation (e.g., "rotate", "zoom_in").
+2. Adjust "animation_speed" and "animation_frames" to control the animation.
+3. Use "x_position", "y_position", "scale", and "rotation" for fine-tuning.
 
-https://github.com/user-attachments/assets/b6aa7384-7ee0-4611-82ac-00f330226407
+## Developer's Guide
 
+### Key Components
 
+1. **Background Removal**:
+   - `remove_background_rembg`: Handles AI-based removal using the rembg library.
+   - `remove_background_chroma`: Implements chroma key-based removal.
 
+2. **Mask Processing**:
+   - `refine_mask`: Applies various refinements to the generated mask.
 
-More output examples can be found [here](https://civitai.com/models/546180/geeky-remb).
+3. **Animation**:
+   - `animate_element`: Handles different types of animations on the foreground image.
 
-## Troubleshooting
+4. **Image Composition**:
+   - `process_image`: The main method that orchestrates the entire process.
 
-If you encounter issues:
-1. Ensure all dependencies are correctly installed.
-2. Check that your input image is in a supported format.
-3. Try using different models or settings for background removal.
-4. For performance issues, consider using smaller images or disabling GPU acceleration if it's causing problems.
+### Extending GeekyRemB
+
+To add new features or modify existing ones:
+
+1. **Adding a New Animation Type**:
+   - Add the new type to the `AnimationType` enum.
+   - Implement the animation logic in the `animate_element` method.
+
+2. **Implementing a New Background Removal Method**:
+   - Create a new method similar to `remove_background_rembg` or `remove_background_chroma`.
+   - Add the new method as an option in the `process_image` method.
+
+3. **Adding New Mask Processing Techniques**:
+   - Extend the `refine_mask` method with new processing options.
+   - Update the `INPUT_TYPES` to include parameters for the new techniques.
+
+4. **Optimizing Performance**:
+   - Consider using GPU acceleration for heavy computations.
+   - Implement caching mechanisms for frequently used data or results.
+
+### Important Considerations
+
+- Ensure compatibility with various image formats and sizes.
+- Handle errors gracefully and provide informative error messages.
+- Optimize memory usage, especially when dealing with large images or multiple frames.
+- Maintain backwards compatibility when adding new features.
 
 ## Contributing
 
@@ -146,14 +155,19 @@ Contributions are welcome! Please read our contributing guidelines before submit
 
 This project is licensed under the MIT License. See the LICENSE file for details.
 
-Note: The 'bria' model is included for its good performance, but requires a license for commercial use. Ensure you have appropriate licensing if you intend to use this model commercially.
+Note: Some included models may require separate licensing for commercial use. Ensure you have appropriate licensing if you intend to use these models commercially.
 
 ## Acknowledgements
 
-GeekyRemB builds upon various open-source projects and research. We're grateful to the entire open-source community for their contributions. A full list of acknowledgements is in progress and will be included in future updates.
+GeekyRemB builds upon the work of many in the open-source community. We extend our sincere gratitude to:
 
-Inspired by tools found in [WAS Node Suite for ComfyUI](https://github.com/WASasquatch/was-node-suite-comfyui.git).
+- Daniel Gatis (https://github.com/danielgatis/rembg), creator of the Rembg library, which forms the backbone of our background removal capabilities.
+- The creators and contributors of ComfyUI (https://github.com/comfyanonymous/ComfyUI), whose innovative work has made this project possible.
+- WAS Node Suite (https://github.com/WASasquatch/was-node-suite-comfyui), particularly the Layer Utility Node, which provided inspiration for some of our features.
+- The broader open-source community, whose collective efforts continue to push the boundaries of what's possible in image processing and AI.
+
+Your work has been instrumental in the development of GeekyRemB, and we're deeply appreciative of your contributions to the field.
 
 ---
 
-This project is a work in progress. Some features may not be fully functional, and we appreciate your patience and contributions as we continue to improve GeekyRemB.
+This project is continually evolving. We welcome feedback, bug reports, and contributions as we work to improve GeekyRemB.
