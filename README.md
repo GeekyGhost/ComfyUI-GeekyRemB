@@ -12,6 +12,23 @@ GeekyRemB is a powerful custom node for ComfyUI that offers advanced background 
 7. [License](#license)
 8. [Acknowledgements](#acknowledgements)
 
+
+
+https://github.com/user-attachments/assets/7bfa11ad-d86a-4501-ac90-a898c6e29661
+
+
+https://github.com/user-attachments/assets/048a06bd-33f0-45a5-ba54-c54b0be1a961
+
+
+
+https://github.com/user-attachments/assets/29a46a5c-bc7f-426c-862d-09e85607bc40
+
+
+
+https://github.com/user-attachments/assets/e4176747-db80-4309-aafb-d4de38dee3d4
+
+
+
 ## Features
 
 - Advanced background removal using multiple AI models (u2net, u2netp, u2net_human_seg, u2net_cloth_seg, silueta, isnet-general-use, isnet-anime)
