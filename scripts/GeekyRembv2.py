@@ -1,12 +1,15 @@
 import numpy as np
 import torch
 import cv2
-from PIL import Image, ImageFilter, ImageOps
+from PIL import Image, ImageFilter, ImageOps, ImageEnhance
 from rembg import remove, new_session
 from enum import Enum
 import math
 from tqdm import tqdm
 from scipy import ndimage
+from concurrent.futures import ThreadPoolExecutor
+import queue
+from threading import Thread
 
 class AnimationType(Enum):
     NONE = "none"
@@ -19,6 +22,106 @@ class AnimationType(Enum):
     ZOOM_IN = "zoom_in"
     ZOOM_OUT = "zoom_out"
 
+class BlendMode:
+    @staticmethod
+    def _ensure_rgba(img):
+        """Convert input array to RGBA format if needed"""
+        if len(img.shape) == 3:
+            if img.shape[2] == 3:  # RGB
+                alpha = np.ones((*img.shape[:2], 1)) * 255
+                return np.concatenate([img, alpha], axis=-1)
+            return img
+        else:  # Single channel
+            return np.stack([img] * 4, axis=-1)
+
+    @staticmethod
+    def _apply_blend(target, blend, operation, opacity=1.0):
+        """Apply blend operation with proper alpha handling"""
+        # Ensure both images are RGBA
+        target = BlendMode._ensure_rgba(target).astype(np.float32)
+        blend = BlendMode._ensure_rgba(blend).astype(np.float32)
+        
+        # Normalize to 0-1 range
+        target = target / 255.0
+        blend = blend / 255.0
+        
+        # Split channels
+        target_rgb = target[..., :3]
+        blend_rgb = blend[..., :3]
+        target_a = target[..., 3:4]
+        blend_a = blend[..., 3:4]
+        
+        # Apply blend operation
+        result_rgb = operation(target_rgb, blend_rgb)
+        
+        # Calculate final alpha
+        result_a = target_a + blend_a * (1 - target_a) * opacity
+        
+        # Combine RGB and alpha
+        result = np.concatenate([
+            result_rgb * opacity + target_rgb * (1 - opacity),
+            result_a
+        ], axis=-1)
+        
+        # Convert back to 0-255 range
+        return (np.clip(result, 0, 1) * 255).astype(np.uint8)
+
+    @staticmethod
+    def normal(target, blend, opacity=1.0):
+        return BlendMode._apply_blend(target, blend, lambda t, b: b, opacity)
+    
+    @staticmethod
+    def multiply(target, blend, opacity=1.0):
+        return BlendMode._apply_blend(target, blend, lambda t, b: t * b, opacity)
+    
+    @staticmethod
+    def screen(target, blend, opacity=1.0):
+        return BlendMode._apply_blend(target, blend, lambda t, b: 1 - (1 - t) * (1 - b), opacity)
+    
+    @staticmethod
+    def overlay(target, blend, opacity=1.0):
+        def overlay_op(t, b):
+            return np.where(t > 0.5,
+                          1 - 2 * (1 - t) * (1 - b),
+                          2 * t * b)
+        return BlendMode._apply_blend(target, blend, overlay_op, opacity)
+    
+    @staticmethod
+    def soft_light(target, blend, opacity=1.0):
+        def soft_light_op(t, b):
+            return np.where(b > 0.5,
+                          t + (2 * b - 1) * (t - t * t),
+                          t - (1 - 2 * b) * t * (1 - t))
+        return BlendMode._apply_blend(target, blend, soft_light_op, opacity)
+    
+    @staticmethod
+    def hard_light(target, blend, opacity=1.0):
+        def hard_light_op(t, b):
+            return np.where(b > 0.5,
+                          1 - 2 * (1 - t) * (1 - b),
+                          2 * t * b)
+        return BlendMode._apply_blend(target, blend, hard_light_op, opacity)
+    
+    @staticmethod
+    def difference(target, blend, opacity=1.0):
+        return BlendMode._apply_blend(target, blend, lambda t, b: np.abs(t - b), opacity)
+    
+    @staticmethod
+    def exclusion(target, blend, opacity=1.0):
+        return BlendMode._apply_blend(target, blend, lambda t, b: t + b - 2 * t * b, opacity)
+    
+    @staticmethod
+    def color_dodge(target, blend, opacity=1.0):
+        def color_dodge_op(t, b):
+            return np.where(b >= 1, 1, np.minimum(1, t / (1 - b + 1e-6)))
+        return BlendMode._apply_blend(target, blend, color_dodge_op, opacity)
+    
+    @staticmethod
+    def color_burn(target, blend, opacity=1.0):
+        def color_burn_op(t, b):
+            return np.where(b <= 0, 0, np.maximum(0, 1 - (1 - t) / (b + 1e-6)))
+        return BlendMode._apply_blend(target, blend, color_burn_op, opacity)
+
 def tensor2pil(image):
     return Image.fromarray(np.clip(255. * image.cpu().numpy().squeeze(), 0, 255).astype(np.uint8))
 
@@ -29,6 +132,38 @@ class GeekyRemB:
     def __init__(self):
         self.session = None
         self.use_gpu = torch.cuda.is_available()
+        self.frame_cache = {}
+        self.max_cache_size = 100
+        self.batch_size = 4
+        self.max_workers = 4
+        self.executor = ThreadPoolExecutor(max_workers=self.max_workers)
+        
+        # Instance variables for background removal
+        self.enable_background_removal = True
+        self.removal_method = "rembg"
+        self.chroma_key_color = "green"
+        self.chroma_key_tolerance = 0.1
+        self.mask_expansion = 0
+        self.edge_detection = False
+        self.edge_thickness = 1
+        self.mask_blur = 0
+        self.threshold = 0.5
+        self.invert_generated_mask = False
+        self.remove_small_regions = False
+        self.small_region_size = 100
+        
+        self.blend_modes = {
+            "normal": BlendMode.normal,
+            "multiply": BlendMode.multiply,
+            "screen": BlendMode.screen,
+            "overlay": BlendMode.overlay,
+            "soft_light": BlendMode.soft_light,
+            "hard_light": BlendMode.hard_light,
+            "difference": BlendMode.difference,
+            "exclusion": BlendMode.exclusion,
+            "color_dodge": BlendMode.color_dodge,
+            "color_burn": BlendMode.color_burn
+        }
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -61,6 +196,15 @@ class GeekyRemB:
                 "y_position": ("INT", {"default": 0, "min": -1000, "max": 1000, "step": 1}),
                 "scale": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 5.0, "step": 0.1}),
                 "rotation": ("FLOAT", {"default": 0, "min": -360, "max": 360, "step": 1}),
+                "blend_mode": ([
+                    "normal", "multiply", "screen", "overlay", "soft_light", 
+                    "hard_light", "difference", "exclusion", "color_dodge", "color_burn"
+                ],),
+                "opacity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "aspect_ratio": ("STRING", {
+                    "default": "", 
+                    "placeholder": "e.g., 16:9, 4:3, 1:1, portrait, landscape"
+                })
             },
             "optional": {
                 "background": ("IMAGE",),
@@ -79,13 +223,21 @@ class GeekyRemB:
             self.session = new_session(model, providers=providers)
 
     def remove_background_rembg(self, image, alpha_matting, alpha_matting_foreground_threshold, alpha_matting_background_threshold):
-        return remove(
+        # Convert to RGBA if not already
+        if image.mode != 'RGBA':
+            image = image.convert('RGBA')
+        
+        # Get the full RGBA result from rembg
+        result = remove(
             image,
             session=self.session,
             alpha_matting=alpha_matting,
             alpha_matting_foreground_threshold=alpha_matting_foreground_threshold,
             alpha_matting_background_threshold=alpha_matting_background_threshold
-        ).split()[-1]  # Return only the alpha channel as mask
+        )
+        
+        # Return both the RGBA result and its alpha channel as mask
+        return result, result.split()[3]
 
     def remove_background_chroma(self, image, color, tolerance):
         img_np = np.array(image)
@@ -112,17 +264,14 @@ class GeekyRemB:
     def refine_mask(self, mask, expansion, edge_detection, edge_thickness, blur, threshold, invert, remove_small_regions, small_region_size):
         mask_np = np.array(mask)
         
-        # Apply threshold
         mask_np = (mask_np > threshold * 255).astype(np.uint8) * 255
         
-        # Edge detection
         if edge_detection:
             edges = cv2.Canny(mask_np, 100, 200)
             kernel = np.ones((edge_thickness, edge_thickness), np.uint8)
             edges = cv2.dilate(edges, kernel, iterations=1)
             mask_np = cv2.addWeighted(mask_np, 1, edges, 0.5, 0)
         
-        # Expand or contract the mask
         if expansion != 0:
             kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (abs(expansion), abs(expansion)))
             if expansion > 0:
@@ -130,11 +279,9 @@ class GeekyRemB:
             else:
                 mask_np = cv2.erode(mask_np, kernel)
         
-        # Apply blur
         if blur > 0:
             mask_np = cv2.GaussianBlur(mask_np, (blur * 2 + 1, blur * 2 + 1), 0)
         
-        # Remove small regions
         if remove_small_regions:
             nb_components, output, stats, centroids = cv2.connectedComponentsWithStats(mask_np, connectivity=8)
             sizes = stats[1:, -1]
@@ -147,24 +294,48 @@ class GeekyRemB:
         
         mask = Image.fromarray(mask_np)
         
-        # Invert if requested
         if invert:
             mask = ImageOps.invert(mask)
         
         return mask
+
+    def parse_aspect_ratio(self, aspect_ratio_input):
+        if not aspect_ratio_input:
+            return None
+        
+        if ':' in aspect_ratio_input:
+            try:
+                w, h = map(float, aspect_ratio_input.split(':'))
+                return w / h
+            except ValueError:
+                return None
+        
+        try:
+            return float(aspect_ratio_input)
+        except ValueError:
+            pass
+
+        standard_ratios = {
+            '4:3': 4/3,
+            '16:9': 16/9,
+            '21:9': 21/9,
+            '1:1': 1,
+            'square': 1,
+            'portrait': 3/4,
+            'landscape': 4/3
+        }
+        
+        return standard_ratios.get(aspect_ratio_input.lower())
 
     def calculate_default_position_and_scale(self, fg_size, bg_size):
         fg_aspect = fg_size[0] / fg_size[1]
         bg_aspect = bg_size[0] / bg_size[1]
 
         if fg_aspect > bg_aspect:
-            # Fit to width
             scale = bg_size[0] / fg_size[0]
         else:
-            # Fit to height
             scale = bg_size[1] / fg_size[1]
 
-        # Ensure the scaled image isn't larger than the background
         scale = min(scale, 1.0)
 
         x = (bg_size[0] - fg_size[0] * scale) // 2
@@ -173,27 +344,22 @@ class GeekyRemB:
         return x, y, scale
 
     def animate_element(self, element, animation_type, animation_speed, frame_number, total_frames,
-                        x_start, y_start, canvas_width, canvas_height, scale, rotation):
+                       x_start, y_start, canvas_width, canvas_height, scale, rotation):
         progress = frame_number / total_frames
         orig_width, orig_height = element.size
         
-        # Ensure the element is in RGBA mode
         if element.mode != 'RGBA':
             element = element.convert('RGBA')
         
-        # Apply initial scale
         new_size = (int(orig_width * scale), int(orig_height * scale))
         element = element.resize(new_size, Image.LANCZOS)
         
-        # Create a new transparent image for rotation
         rotated = Image.new('RGBA', element.size, (0, 0, 0, 0))
-        
-        # Paste the element onto the center of the new image
         rotated.paste(element, (0, 0), element)
         
-        # Apply rotation from the center of the foreground image
         if rotation != 0:
-            rotated = rotated.rotate(rotation, resample=Image.BICUBIC, expand=True, center=(rotated.width // 2, rotated.height // 2))
+            rotated = rotated.rotate(rotation, resample=Image.BICUBIC, expand=True,
+                                   center=(rotated.width // 2, rotated.height // 2))
         
         if animation_type == AnimationType.BOUNCE.value:
             y_offset = int(math.sin(progress * 2 * math.pi) * animation_speed * 50)
@@ -206,7 +372,8 @@ class GeekyRemB:
             y = y_start
         elif animation_type == AnimationType.ROTATE.value:
             angle = progress * 360 * animation_speed
-            rotated = rotated.rotate(angle, resample=Image.BICUBIC, expand=True, center=(rotated.width // 2, rotated.height // 2))
+            rotated = rotated.rotate(angle, resample=Image.BICUBIC, expand=True,
+                                   center=(rotated.width // 2, rotated.height // 2))
             x, y = x_start, y_start
         elif animation_type == AnimationType.FADE_IN.value:
             x, y = x_start, y_start
@@ -220,18 +387,14 @@ class GeekyRemB:
             r, g, b, a = rotated.split()
             a = a.point(lambda i: i * opacity // 255)
             rotated = Image.merge('RGBA', (r, g, b, a))
-        elif animation_type == AnimationType.ZOOM_IN.value or animation_type == AnimationType.ZOOM_OUT.value:
-            if animation_type == AnimationType.ZOOM_IN.value:
-                zoom_scale = 1 + progress * animation_speed
-            else:  # ZOOM_OUT
-                zoom_scale = 1 + (1 - progress) * animation_speed
+        elif animation_type in [AnimationType.ZOOM_IN.value, AnimationType.ZOOM_OUT.value]:
+            zoom_scale = 1 + progress * animation_speed if animation_type == AnimationType.ZOOM_IN.value else 1 + (1 - progress) * animation_speed
             
             new_width = int(orig_width * scale * zoom_scale)
             new_height = int(orig_height * scale * zoom_scale)
             
             rotated = rotated.resize((new_width, new_height), Image.LANCZOS)
             
-            # Calculate the crop box to keep the center of the original image
             left = (new_width - orig_width * scale) / 2
             top = (new_height - orig_height * scale) / 2
             right = left + orig_width * scale
@@ -244,16 +407,132 @@ class GeekyRemB:
 
         return rotated, x, y
 
-    def process_image(self, foreground, enable_background_removal, removal_method, model, chroma_key_color,
-                      chroma_key_tolerance, mask_expansion, edge_detection, edge_thickness, mask_blur, threshold,
-                      invert_generated_mask, remove_small_regions, small_region_size, alpha_matting,
-                      alpha_matting_foreground_threshold, alpha_matting_background_threshold,
-                      animation_type, animation_speed, animation_frames, x_position, y_position, scale, rotation,
-                      background=None, additional_mask=None, invert_additional_mask=False):
+    def process_frame(self, frame, background_frame=None, *args):
         try:
+            # Convert frame format if needed
+            if isinstance(frame, np.ndarray):
+                frame = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+
+            if frame.mode != 'RGBA':
+                frame = frame.convert('RGBA')
+
+            # Handle background removal
+            if self.enable_background_removal:
+                if self.removal_method == "rembg":
+                    frame_with_alpha, mask = self.remove_background_rembg(
+                        frame,
+                        args[0],  # alpha_matting
+                        args[1],  # alpha_matting_foreground_threshold
+                        args[2]   # alpha_matting_background_threshold
+                    )
+                    frame = frame_with_alpha
+                else:
+                    mask = self.remove_background_chroma(
+                        frame,
+                        self.chroma_key_color,
+                        self.chroma_key_tolerance
+                    )
+                    frame = Image.composite(
+                        frame, 
+                        Image.new('RGBA', frame.size, (0, 0, 0, 0)), 
+                        mask
+                    )
+
+                mask = self.refine_mask(
+                    mask,
+                    self.mask_expansion,
+                    self.edge_detection,
+                    self.edge_thickness,
+                    self.mask_blur,
+                    self.threshold,
+                    self.invert_generated_mask,
+                    self.remove_small_regions,
+                    self.small_region_size
+                )
+            else:
+                mask = Image.new('L', frame.size, 255)
+
+            # Apply animation
+            animated_frame, x, y = self.animate_element(
+                frame,
+                args[3],   # animation_type
+                args[4],   # animation_speed
+                args[5],   # frame_number
+                args[6],   # total_frames
+                args[7],   # x_position
+                args[8],   # y_position
+                background_frame.width if background_frame else frame.width,
+                background_frame.height if background_frame else frame.height,
+                args[9],   # scale
+                args[10]   # rotation
+            )
+
+            # Handle background blending
+            if background_frame is not None:
+                bg_width, bg_height = background_frame.size
+                
+                if args[11] != "normal":  # blend_mode
+                    # Create a blank canvas matching background size
+                    canvas = Image.new('RGBA', (bg_width, bg_height), (0, 0, 0, 0))
+                    
+                    # Calculate safe paste position
+                    paste_x = max(0, min(int(x), bg_width - animated_frame.width))
+                    paste_y = max(0, min(int(y), bg_height - animated_frame.height))
+                    
+                    # Paste animated frame onto canvas
+                    canvas.paste(animated_frame, (paste_x, paste_y), animated_frame)
+                    
+                    # Convert to numpy arrays for blending
+                    bg_array = np.array(background_frame)
+                    canvas_array = np.array(canvas)
+                    
+                    # Apply blend mode with opacity
+                    result_array = self.blend_modes[args[11]](
+                        bg_array, 
+                        canvas_array, 
+                        args[12]  # opacity
+                    )
+                    result = Image.fromarray(result_array)
+                else:
+                    # Normal blend mode
+                    result = background_frame.copy().convert('RGBA')
+                    result.alpha_composite(animated_frame, (int(x), int(y)))
+            else:
+                result = animated_frame
+
+            return result, mask
+
+        except Exception as e:
+            print(f"Error processing frame: {str(e)}")
+            return frame, Image.new('L', frame.size, 255)
+
+    def process_image(self, foreground, enable_background_removal, removal_method, model,
+                     chroma_key_color, chroma_key_tolerance, mask_expansion, edge_detection,
+                     edge_thickness, mask_blur, threshold, invert_generated_mask,
+                     remove_small_regions, small_region_size, alpha_matting,
+                     alpha_matting_foreground_threshold, alpha_matting_background_threshold,
+                     animation_type, animation_speed, animation_frames, x_position, y_position,
+                     scale, rotation, blend_mode, opacity, aspect_ratio, background=None,
+                     additional_mask=None, invert_additional_mask=False):
+        try:
+            # Set instance variables
+            self.enable_background_removal = enable_background_removal
+            self.removal_method = removal_method
+            self.chroma_key_color = chroma_key_color
+            self.chroma_key_tolerance = chroma_key_tolerance
+            self.mask_expansion = mask_expansion
+            self.edge_detection = edge_detection
+            self.edge_thickness = edge_thickness
+            self.mask_blur = mask_blur
+            self.threshold = threshold
+            self.invert_generated_mask = invert_generated_mask
+            self.remove_small_regions = remove_small_regions
+            self.small_region_size = small_region_size
+
             if enable_background_removal and removal_method == "rembg":
                 self.initialize_model(model)
 
+            # Convert inputs to PIL images
             fg_frames = [tensor2pil(foreground[i]) for i in range(foreground.shape[0])]
             bg_frames = [tensor2pil(background[i]) for i in range(background.shape[0])] if background is not None else None
 
@@ -261,62 +540,46 @@ class GeekyRemB:
                 bg_frames = bg_frames * (animation_frames // len(bg_frames) + 1)
                 bg_frames = bg_frames[:animation_frames]
 
-            # Calculate default position and scale
-            if bg_frames:
-                default_x, default_y, default_scale = self.calculate_default_position_and_scale(fg_frames[0].size, bg_frames[0].size)
-            else:
-                default_x, default_y, default_scale = 0, 0, 1.0
-
-            # Use default values if user didn't specify custom ones
-            x_position = x_position if x_position != 0 else default_x
-            y_position = y_position if y_position != 0 else default_y
-            scale = scale if scale != 1.0 else default_scale
+            # Parse and apply aspect ratio if specified
+            aspect_ratio_value = self.parse_aspect_ratio(aspect_ratio)
+            if aspect_ratio_value is not None:
+                for i in range(len(fg_frames)):
+                    new_width = int(fg_frames[i].width * scale)
+                    new_height = int(new_width / aspect_ratio_value)
+                    fg_frames[i] = fg_frames[i].resize((new_width, new_height), Image.LANCZOS)
 
             animated_frames = []
             masks = []
+
             for frame in tqdm(range(animation_frames), desc="Processing frames"):
                 fg_index = frame % len(fg_frames)
-                fg_frame = fg_frames[fg_index].convert('RGBA')
-                
-                if enable_background_removal:
-                    if removal_method == "rembg":
-                        mask = self.remove_background_rembg(fg_frame, alpha_matting, alpha_matting_foreground_threshold, alpha_matting_background_threshold)
-                    else:  # chroma_key
-                        mask = self.remove_background_chroma(fg_frame, chroma_key_color, chroma_key_tolerance)
-                    
-                    # Refine the mask
-                    mask = self.refine_mask(mask, mask_expansion, edge_detection, edge_thickness, mask_blur,
-                                            threshold, invert_generated_mask, remove_small_regions, small_region_size)
-                    
-                    # Combine with additional mask if provided
-                    if additional_mask is not None:
-                        additional_mask_pil = tensor2pil(additional_mask[frame % len(additional_mask)])
-                        if invert_additional_mask:
-                            additional_mask_pil = ImageOps.invert(additional_mask_pil)
-                        mask = Image.fromarray(np.minimum(np.array(mask), np.array(additional_mask_pil)))
-                    
-                    # Apply a slight Gaussian blur to the mask for smoother edges
-                    mask = mask.filter(ImageFilter.GaussianBlur(radius=1))
-                    
-                    # Apply the mask to remove the background with premultiplied alpha
-                    fg_frame = Image.composite(fg_frame, Image.new('RGBA', fg_frame.size, (0, 0, 0, 0)), mask)
-                else:
-                    mask = Image.new('L', fg_frame.size, 255)
+                bg_frame = bg_frames[frame % len(bg_frames)] if bg_frames else None
 
-                if bg_frames:
-                    bg_index = frame % len(bg_frames)
-                    result = bg_frames[bg_index].copy().convert('RGBA')
-                else:
-                    result = Image.new("RGBA", fg_frame.size, (0, 0, 0, 0))  # Transparent background
-
-                animated_fg, x, y = self.animate_element(
-                    fg_frame, animation_type, animation_speed, frame, animation_frames,
-                    x_position, y_position, result.width, result.height, scale, rotation
+                frame_args = (
+                    alpha_matting,
+                    alpha_matting_foreground_threshold,
+                    alpha_matting_background_threshold,
+                    animation_type,
+                    animation_speed,
+                    frame,
+                    animation_frames,
+                    x_position,
+                    y_position,
+                    scale,
+                    rotation,
+                    blend_mode,
+                    opacity
                 )
 
-                # Composite the animated foreground onto the background
-                result.alpha_composite(animated_fg, (int(x), int(y)))
-                animated_frames.append(pil2tensor(result))  # Keep RGBA format
+                result_frame, mask = self.process_frame(fg_frames[fg_index], bg_frame, *frame_args)
+
+                if additional_mask is not None:
+                    additional_mask_pil = tensor2pil(additional_mask[frame % len(additional_mask)])
+                    if invert_additional_mask:
+                        additional_mask_pil = ImageOps.invert(additional_mask_pil)
+                    mask = Image.fromarray(np.minimum(np.array(mask), np.array(additional_mask_pil)))
+
+                animated_frames.append(pil2tensor(result_frame))
                 masks.append(pil2tensor(mask.convert('L')))
 
             return (torch.cat(animated_frames, dim=0), torch.cat(masks, dim=0))
