@@ -169,6 +169,7 @@ class GeekyRemB:
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "output_format": (["RGBA", "RGB"],),
                 "foreground": ("IMAGE",),
                 "enable_background_removal": ("BOOLEAN", {"default": True}),
                 "removal_method": (["rembg", "chroma_key"],),
@@ -506,7 +507,7 @@ class GeekyRemB:
             print(f"Error processing frame: {str(e)}")
             return frame, Image.new('L', frame.size, 255)
 
-    def process_image(self, foreground, enable_background_removal, removal_method, model,
+    def process_image(self, output_format, foreground, enable_background_removal, removal_method, model,
                      chroma_key_color, chroma_key_tolerance, mask_expansion, edge_detection,
                      edge_thickness, mask_blur, threshold, invert_generated_mask,
                      remove_small_regions, small_region_size, alpha_matting,
@@ -581,6 +582,13 @@ class GeekyRemB:
 
                 animated_frames.append(pil2tensor(result_frame))
                 masks.append(pil2tensor(mask.convert('L')))
+
+            # Convert output format if needed
+            if output_format == "RGB":
+                for i in range(len(animated_frames)):
+                    frame = tensor2pil(animated_frames[i])
+                    frame = frame.convert('RGB')
+                    animated_frames[i] = pil2tensor(frame)
 
             return (torch.cat(animated_frames, dim=0), torch.cat(masks, dim=0))
 
