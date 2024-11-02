@@ -1,7 +1,12 @@
 numpy
 opencv-python
 torch
+torchvision
 Pillow
 rembg
 transformers
 tqdm
+huggingface-hub
+scikit-image
+scipy
+onnxruntime-gpu  # For GPU support, use onnxruntime if no GPU
