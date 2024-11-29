@@ -4,18 +4,18 @@ import cv2
 from PIL import Image, ImageFilter, ImageOps, ImageEnhance
 from rembg import remove, new_session
 from enum import Enum, auto
+from dataclasses import dataclass
 import math
 from tqdm import tqdm
 from scipy import ndimage
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Tuple, Optional, Union, Dict, Callable
-from dataclasses import dataclass
-import logging
-import warnings
 from threading import Lock
 from multiprocessing import cpu_count
 import os
 import gc
+import logging
+import warnings
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -389,11 +389,21 @@ class EnhancedAnimator:
         
         # Apply rotation around the center of visible pixels
         if rotation != 0:
-            element = element.rotate(
+            # Calculate bounding box for the rotated image
+            rotated_image = element.rotate(
                 rotation,
                 resample=Image.BICUBIC,
-                expand=True,
-                center=(center_x, center_y)
+                expand=True
+            )
+            rotated_width, rotated_height = rotated_image.size
+            new_canvas = Image.new("RGBA", (rotated_width, rotated_height), (0, 0, 0, 0))
+            offset_x = (rotated_width - element.width) // 2
+            offset_y = (rotated_height - element.height) // 2
+            new_canvas.paste(element, (offset_x, offset_y))
+            element = new_canvas.rotate(
+                rotation,
+                resample=Image.BICUBIC,
+                expand=False
             )
         
         x, y = x_start, y_start
@@ -438,7 +448,8 @@ class EnhancedAnimator:
             x = int(-element.width + (canvas_width + element.width) * progress)
         
         elif animation_type == AnimationType.ROTATE.value:
-            angle = progress * 360 * animation_speed
+            spin_speed = 360 * animation_speed  # degrees per cycle
+            angle = progress * spin_speed
             element = element.rotate(
                 angle,
                 resample=Image.BICUBIC,
