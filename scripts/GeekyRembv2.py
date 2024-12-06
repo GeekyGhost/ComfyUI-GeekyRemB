@@ -30,7 +30,7 @@ def tensor2pil(image):
         # Convert to numpy array
         return Image.fromarray(np.clip(255. * image.numpy().squeeze(), 0, 255).astype(np.uint8))
     except Exception as e:
-        print(f"Error converting tensor to PIL: {str(e)}")
+        logger.error(f"Error converting tensor to PIL: {str(e)}")
         return Image.new('RGB', (image.shape[-2], image.shape[-1]), (0, 0, 0))
 
 def pil2tensor(image):
@@ -38,7 +38,7 @@ def pil2tensor(image):
     try:
         return torch.from_numpy(np.array(image).astype(np.float32) / 255.0).unsqueeze(0)
     except Exception as e:
-        print(f"Error converting PIL to tensor: {str(e)}")
+        logger.error(f"Error converting PIL to tensor: {str(e)}")
         return torch.zeros((1, 3, image.size[1], image.size[0]))
 
 def debug_tensor_info(tensor, name="Tensor"):
@@ -111,17 +111,21 @@ class AnimationType(Enum):
     FLASH = "flash"  # Additional new animation type
 
 @dataclass
+@dataclass
 class ProcessingConfig:
     """Configuration for image processing parameters"""
     enable_background_removal: bool = True
     removal_method: str = "rembg"
     model: str = "u2net"
-    chroma_key_color: str = "green"
+    # Chroma key color can now be a tuple (R,G,B) or string
+    chroma_key_color: Union[str, Tuple[int, int, int]] = "green"
     chroma_key_tolerance: float = 0.1
     mask_expansion: int = 0
     edge_detection: bool = False
     edge_thickness: int = 1
-    mask_blur: int = 0
+    # Edge color in RGBA
+    edge_color: Tuple[int, int, int, int] = (0, 0, 0, 255)
+    mask_blur: int = 5
     threshold: float = 0.5
     invert_generated_mask: bool = False
     remove_small_regions: bool = False
@@ -263,69 +267,77 @@ class EnhancedMaskProcessor:
     """Enhanced mask processing with advanced refinement techniques"""
     
     @staticmethod
-    def refine_mask(mask: Image.Image, config: ProcessingConfig) -> Image.Image:
-        mask_np = np.array(mask)
-        
-        # Enhanced thresholding
-        if config.threshold > 0:
-            _, mask_np = cv2.threshold(
-                mask_np, 
-                int(config.threshold * 255), 
-                255, 
-                cv2.THRESH_BINARY + cv2.THRESH_OTSU
-            )
-        
-        # Enhanced edge detection
-        if config.edge_detection:
-            edges = cv2.Canny(mask_np, 100, 200)
-            kernel = np.ones((config.edge_thickness, config.edge_thickness), np.uint8)
-            edges = cv2.dilate(edges, kernel, iterations=1)
-            mask_np = cv2.addWeighted(mask_np, 1, edges, 0.5, 0)
-        
-        # Enhanced morphological operations
-        if config.mask_expansion != 0:
-            kernel_size = max(1, abs(config.mask_expansion))
-            kernel = cv2.getStructuringElement(
-                cv2.MORPH_ELLIPSE, 
-                (kernel_size, kernel_size)
-            )
-            if config.mask_expansion > 0:
-                mask_np = cv2.dilate(mask_np, kernel)
-            else:
-                mask_np = cv2.erode(mask_np, kernel)
-        
-        # Enhanced blur
-        if config.mask_blur > 0:
-            mask_np = cv2.GaussianBlur(
+    def refine_mask(mask: Image.Image, config: ProcessingConfig, original_image: Image.Image) -> Image.Image:
+        """Enhanced mask refinement with improved edge detection and color control"""
+        try:
+            # Convert mask to numpy array
+            mask_np = np.array(mask)
+            if len(mask_np.shape) > 2:
+                if mask_np.shape[2] == 4:
+                    mask_np = mask_np[:, :, 3]
+                else:
+                    mask_np = mask_np[:, :, 0]
+
+            # Initial binary threshold
+            _, binary_mask = cv2.threshold(
                 mask_np,
-                (config.mask_blur * 2 + 1, config.mask_blur * 2 + 1),
-                0
+                127,
+                255,
+                cv2.THRESH_BINARY
             )
-        
-        # Enhanced small region removal
-        if config.remove_small_regions:
-            nb_components, output, stats, _ = cv2.connectedComponentsWithStats(
-                mask_np, 
-                connectivity=8
-            )
-            sizes = stats[1:, -1]
-            nb_components = nb_components - 1
-            
-            min_size = config.small_region_size
-            img2 = np.zeros(output.shape, dtype=np.uint8)
-            
-            for i in range(nb_components):
-                if sizes[i] >= min_size:
-                    img2[output == i + 1] = 255
-            
-            mask_np = img2
-        
-        mask = Image.fromarray(mask_np)
-        
-        if config.invert_generated_mask:
-            mask = ImageOps.invert(mask)
-        
-        return mask
+
+            # Enhanced Edge Detection
+            if config.edge_detection:
+                # Detect edges using Canny
+                edges = cv2.Canny(binary_mask, 100, 200)
+                
+                # Create kernel based on edge_thickness
+                kernel = cv2.getStructuringElement(
+                    cv2.MORPH_ELLIPSE,
+                    (config.edge_thickness, config.edge_thickness)
+                )
+                
+                # Dilate edges
+                edges = cv2.dilate(edges, kernel)
+                
+                # Convert edge color from grayscale to color mask
+                edge_mask = np.zeros((*binary_mask.shape, 4), dtype=np.uint8)
+                edge_mask[edges > 0] = config.edge_color  # Edge color from config
+                
+                # Blend edges with original mask
+                binary_mask = cv2.addWeighted(
+                    binary_mask, 
+                    0.7,
+                    edges,
+                    0.3,
+                    0
+                )
+
+            # Handle mask expansion
+            if config.mask_expansion != 0:
+                kernel = np.ones((2, 2), np.uint8)
+                if config.mask_expansion > 0:
+                    binary_mask = cv2.dilate(binary_mask, kernel, iterations=1)
+                else:
+                    binary_mask = cv2.erode(binary_mask, kernel, iterations=1)
+
+            # Apply minimal blur for anti-aliasing
+            if config.mask_blur > 0:
+                blur_amount = min(config.mask_blur, 3)
+                binary_mask = cv2.GaussianBlur(
+                    binary_mask,
+                    (blur_amount*2+1, blur_amount*2+1),
+                    0
+                )
+
+            if config.invert_generated_mask:
+                binary_mask = 255 - binary_mask
+
+            return Image.fromarray(binary_mask.astype(np.uint8), 'L')
+
+        except Exception as e:
+            logger.error(f"Mask refinement failed: {str(e)}")
+            return mask
 
 class EnhancedAnimator:
     """Enhanced animation processing with additional effects"""
@@ -481,7 +493,7 @@ class EnhancedAnimator:
             right = left + orig_width * scale
             bottom = top + orig_height * scale
             
-            element = element.crop((left, top, right, bottom))
+            element = element.crop((int(left), int(top), int(right), int(bottom)))
         
         elif animation_type == AnimationType.ZOOM_OUT.value:
             zoom_scale = 1 + (1 - progress) * animation_speed
@@ -495,7 +507,7 @@ class EnhancedAnimator:
             right = left + orig_width * scale
             bottom = top + orig_height * scale
             
-            element = element.crop((left, top, right, bottom))
+            element = element.crop((int(left), int(top), int(right), int(bottom)))
         
         # New animation types with adjusted progress
         elif animation_type == AnimationType.SHAKE.value:
@@ -635,7 +647,7 @@ class EnhancedGeekyRemB:
                 "mask_expansion": ("INT", {"default": 0, "min": -100, "max": 100, "step": 1}),
                 "edge_detection": ("BOOLEAN", {"default": False}),
                 "edge_thickness": ("INT", {"default": 1, "min": 1, "max": 10, "step": 1}),
-                "mask_blur": ("INT", {"default": 0, "min": 0, "max": 100, "step": 1}),
+                "mask_blur": ("INT", {"default": 5, "min": 0, "max": 100, "step": 1}),
                 "threshold": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "invert_generated_mask": ("BOOLEAN", {"default": False}),
                 "remove_small_regions": ("BOOLEAN", {"default": False}),
@@ -678,7 +690,7 @@ class EnhancedGeekyRemB:
     def initialize_model(self, model: str) -> None:
         """Thread-safe model initialization"""
         with self.session_lock:
-            if self.session is None or self.session.model_name != model:
+            if self.session is None or getattr(self.session, 'model_name', None) != model:
                 providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if self.use_gpu else ['CPUExecutionProvider']
                 try:
                     self.session = new_session(model, providers=providers)
@@ -688,7 +700,7 @@ class EnhancedGeekyRemB:
                     raise RuntimeError(f"Model initialization failed: {str(e)}")
 
     def remove_background_rembg(self, image: Image.Image) -> Tuple[Image.Image, Image.Image]:
-        """Enhanced background removal using rembg"""
+        """Enhanced background removal using rembg with alpha matting"""
         try:
             if image.mode != 'RGBA':
                 image = image.convert('RGBA')
@@ -707,78 +719,100 @@ class EnhancedGeekyRemB:
             raise RuntimeError(f"Background removal failed: {str(e)}")
 
     def remove_background_chroma(self, image: Image.Image) -> Image.Image:
-        """Enhanced chroma key background removal"""
+        """Simplified chroma key with better alpha handling"""
         try:
+            # Convert to numpy array
             img_np = np.array(image)
             if img_np.shape[2] == 4:
-                img_np = img_np[:,:,:3]
-            
+                img_np = img_np[:, :, :3]
+
+            # Convert to HSV color space
             hsv = cv2.cvtColor(img_np, cv2.COLOR_RGB2HSV)
-            
-            # Enhanced color ranges with better tolerance handling
+
+            # Basic color ranges
+            tolerance = int(30 * self.config.chroma_key_tolerance)
+            saturation_min = 30
+            value_min = 30
+
+            # Color-specific ranges
             if self.config.chroma_key_color == "green":
-                lower = np.array([60 - int(30 * self.config.chroma_key_tolerance), 100, 100])
-                upper = np.array([60 + int(30 * self.config.chroma_key_tolerance), 255, 255])
+                lower = np.array([55 - tolerance, saturation_min, value_min])
+                upper = np.array([65 + tolerance, 255, 255])
             elif self.config.chroma_key_color == "blue":
-                lower = np.array([120 - int(30 * self.config.chroma_key_tolerance), 100, 100])
-                upper = np.array([120 + int(30 * self.config.chroma_key_tolerance), 255, 255])
+                lower = np.array([110 - tolerance, saturation_min, value_min])
+                upper = np.array([130 + tolerance, 255, 255])
             else:  # red
-                lower = np.array([0, 100, 100])
-                upper = np.array([30, 255, 255])
-            
-            mask = cv2.inRange(hsv, lower, upper)
-            mask = 255 - mask  # Invert mask to get foreground
-            
-            # Enhanced mask cleanup
-            mask = cv2.medianBlur(mask, 3)
-            mask = cv2.GaussianBlur(mask, (3, 3), 0)
-            
-            return Image.fromarray(mask)
+                lower1 = np.array([0, saturation_min, value_min])
+                upper1 = np.array([tolerance, 255, 255])
+                lower2 = np.array([180 - tolerance, saturation_min, value_min])
+                upper2 = np.array([180, 255, 255])
+                
+                mask1 = cv2.inRange(hsv, lower1, upper1)
+                mask2 = cv2.inRange(hsv, lower2, upper2)
+                mask = cv2.bitwise_or(mask1, mask2)
+
+            # Create mask for non-red colors
+            if self.config.chroma_key_color != "red":
+                mask = cv2.inRange(hsv, lower, upper)
+
+            # Invert mask (0 for background, 255 for foreground)
+            mask = 255 - mask
+
+            # Convert back to PIL and return
+            return Image.fromarray(mask, 'L')
+
         except Exception as e:
             logger.error(f"Chroma key removal failed: {str(e)}")
             raise RuntimeError(f"Chroma key removal failed: {str(e)}")
 
     def process_frame(self, frame: Image.Image, background_frame: Optional[Image.Image], 
                      frame_number: int, total_frames: int) -> Tuple[Image.Image, Image.Image]:
-        """Enhanced frame processing with improved error handling"""
+        """Fixed frame processing"""
         try:
             if isinstance(frame, np.ndarray):
                 frame = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
-            if frame.mode != 'RGBA':
-                frame = frame.convert('RGBA')
+            # Ensure RGBA mode
+            frame = frame.convert('RGBA')
 
-            # Handle background removal
             if self.config.enable_background_removal:
                 if self.config.removal_method == "rembg":
                     frame_with_alpha, mask = self.remove_background_rembg(frame)
                     frame = frame_with_alpha
                 else:
+                    # Get mask
                     mask = self.remove_background_chroma(frame)
-                    frame = Image.composite(
-                        frame, 
-                        Image.new('RGBA', frame.size, (0, 0, 0, 0)), 
-                        mask
-                    )
+                    refined_mask = self.mask_processor.refine_mask(mask, self.config, frame)
+                    
+                    # Create new frame with refined alpha
+                    frame_array = np.array(frame)
+                    mask_array = np.array(refined_mask)
+                    
+                    # Ensure mask is in correct shape for alpha channel
+                    if len(mask_array.shape) == 2:
+                        mask_array = mask_array[:, :, None]
 
-                mask = self.mask_processor.refine_mask(mask, self.config)
-
+                    # Apply mask to RGB channels
+                    frame_array = frame_array * (mask_array / 255.0)
+                    frame_array[:, :, 3] = mask_array[:, :, 0]  # Set alpha channel
+                    
+                    frame = Image.fromarray(frame_array.astype(np.uint8), 'RGBA')
             else:
                 mask = Image.new('L', frame.size, 255)
 
-            # Apply animation with new parameters
+            # Animation handling remains the same
             animated_frame, x, y = self.animator.animate_element(
                 frame,
-                self.animation_type,
-                self.animation_speed,
+                self.config.animation_type,
+                self.config.animation_speed,
                 frame_number,
                 total_frames,
-                self.x_position,
-                self.y_position,
+                self.config.x_position,
+                self.config.y_position,
                 background_frame.width if background_frame else frame.width,
                 background_frame.height if background_frame else frame.height,
-                self.scale,
-                self.rotation,
+                self.config.scale,
+                self.config.rotation,
                 EASING_FUNCTIONS.get(self.config.easing_function, linear),
                 self.config.repeats,
                 self.config.reverse,
@@ -787,43 +821,15 @@ class EnhancedGeekyRemB:
                 phase_shift=self.config.phase_shift
             )
 
-            # Validate blend mode
-            if self.blend_mode not in self.blend_modes:
-                logger.warning(f"Unsupported blend mode '{self.blend_mode}'. Falling back to 'normal'.")
-                blend_mode_func = self.blend_modes["normal"]
-            else:
-                blend_mode_func = self.blend_modes[self.blend_mode]
-
-            # Handle background blending
+            # Handle background composition
             if background_frame is not None:
-                bg_width, bg_height = background_frame.size
-                
-                if self.blend_mode != "normal":
-                    canvas = Image.new('RGBA', (bg_width, bg_height), (0, 0, 0, 0))
-                    paste_x = max(0, min(int(x), bg_width - animated_frame.width))
-                    paste_y = max(0, min(int(y), bg_height - animated_frame.height))
-                    canvas.paste(animated_frame, (paste_x, paste_y), animated_frame)
-                    
-                    bg_array = np.array(background_frame)
-                    canvas_array = np.array(canvas)
-                    
-                    # Ensure both arrays are in the same color space
-                    if bg_array.shape[2] != canvas_array.shape[2]:
-                        bg_array = EnhancedBlendMode._ensure_rgba(bg_array)
-                    
-                    result_array = blend_mode_func(
-                        bg_array, 
-                        canvas_array, 
-                        self.opacity
-                    )
-                    result = Image.fromarray(result_array)
-                else:
-                    result = background_frame.copy().convert('RGBA')
-                    result.alpha_composite(animated_frame, (int(x), int(y)))
-            else:
-                result = animated_frame
+                bg = background_frame.convert('RGBA')
+                result = Image.new('RGBA', bg.size, (0, 0, 0, 0))
+                result.paste(bg, (0, 0))
+                result.paste(animated_frame, (int(x), int(y)), animated_frame)
+                animated_frame = result
 
-            return result, mask
+            return animated_frame, mask
 
         except Exception as e:
             logger.error(f"Frame processing failed: {str(e)}")
@@ -837,18 +843,18 @@ class EnhancedGeekyRemB:
                      animation_type, animation_speed, animation_duration, repeats, reverse,
                      easing_function, delay, animation_frames, x_position, y_position,
                      scale, rotation, blend_mode, opacity, aspect_ratio, steps=1,
-                     phase_shift=0.0, background=None,
+                     phase_shift: float = 0.0, background=None,
                      additional_mask=None, invert_additional_mask=False):
         try:
             # Store animation and processing parameters
-            self.animation_type = animation_type
-            self.animation_speed = animation_speed
-            self.x_position = x_position
-            self.y_position = y_position
-            self.scale = scale
-            self.rotation = rotation
-            self.blend_mode = blend_mode
-            self.opacity = opacity
+            self.config.animation_type = animation_type
+            self.config.animation_speed = animation_speed
+            self.config.x_position = x_position
+            self.config.y_position = y_position
+            self.config.scale = scale
+            self.config.rotation = rotation
+            self.config.blend_mode = blend_mode
+            self.config.opacity = opacity
             
             # Update config
             self.config.enable_background_removal = enable_background_removal
@@ -965,7 +971,7 @@ class EnhancedGeekyRemB:
             except Exception as e:
                 logger.error(f"Error concatenating results: {str(e)}")
                 return (foreground, torch.zeros_like(foreground[:, :1, :, :]))
-        
+
         except Exception as e:
             logger.error(f"Error in process_image: {str(e)}")
             return (foreground, torch.zeros_like(foreground[:, :1, :, :]))
@@ -1039,14 +1045,17 @@ class LRUCache:
                 # Remove least recently used item
                 lru_key = self.access_order.pop(0)
                 del self.cache[lru_key]
+                logger.debug(f"LRU cache evicted: {lru_key}")
             
             self.cache[key] = value
             self.access_order.append(key)
+            logger.debug(f"LRU cache set: {key}")
     
     def clear(self):
         with self.lock:
             self.cache.clear()
             self.access_order.clear()
+            logger.info("LRU cache cleared.")
 
 # Node class mappings
 NODE_CLASS_MAPPINGS = {
