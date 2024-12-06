@@ -662,7 +662,7 @@ class EnhancedGeekyRemB:
                 "reverse": ("BOOLEAN", {"default": False}),
                 "easing_function": (list(EASING_FUNCTIONS.keys()),),
                 "delay": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 5.0, "step": 0.1}),
-                "animation_frames": ("INT", {"default": 30, "min": 1, "max": 3000, "step": 1}),
+                "animation_frames": ("INT", {"default": 1, "min": 1, "max": 3000, "step": 1}),
                 "x_position": ("INT", {"default": 0, "min": -1000, "max": 1000, "step": 1}),
                 "y_position": ("INT", {"default": 0, "min": -1000, "max": 1000, "step": 1}),
                 "scale": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 5.0, "step": 0.1}),
