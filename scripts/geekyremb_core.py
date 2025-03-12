@@ -480,7 +480,7 @@ class GeekyRemB:
                     # Extract keyframe specific parameters
                     keyframes = animation_params.get("keyframes", [])
                     fps = animation_params.get("fps", 30)
-                    animation_frames = animation_params.get("total_frames", frames)
+                    animation_frames = animation_params.get("total_frames", frames)  # Use total_frames directly from keyframe params
                     easing_function = animation_params.get("default_easing", "linear")
                     
                     # Log keyframe details
@@ -513,7 +513,8 @@ class GeekyRemB:
                 else:
                     # Standard animation parameters
                     animation_speed = animation_params.get("animation_speed", 1.0)
-                    animation_frames = frames  # Use frames from main node
+                    frame_count = animation_params.get("frame_count", frames)  # Get frame_count directly
+                    animation_frames = frame_count  # Use frame_count as animation_frames
                     repeats = animation_params.get("repeats", 1)
                     reverse = animation_params.get("reverse", False)
                     easing_function = animation_params.get("easing_function", "linear")
