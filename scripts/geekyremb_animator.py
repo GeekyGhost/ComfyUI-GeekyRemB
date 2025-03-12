@@ -63,7 +63,7 @@ class GeekyRemB_Animator:
                 "output_format": (["RGBA", "RGB"],),
                 "animation_type": ([anim.value for anim in AnimationType],),
                 "animation_speed": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1}),
-                "animation_duration": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1}),
+                "frame_count": ("INT", {"default": 30, "min": 1, "max": 1000, "step": 1}),  # Changed from animation_duration
                 "repeats": ("INT", {"default": 1, "min": 1, "max": 10, "step": 1}),
                 "reverse": ("BOOLEAN", {"default": False}),
                 "easing_function": (list(EASING_FUNCTIONS.keys()),),
@@ -92,11 +92,14 @@ class GeekyRemB_Animator:
     CATEGORY = "image/animation"
     DISPLAY_NAME = "Geeky RemB Animator"
 
-    def provide_animator(self, output_format, animation_type, animation_speed, animation_duration,
+    def provide_animator(self, output_format, animation_type, animation_speed, frame_count,
                        repeats, reverse, easing_function, fps, use_keyframes, delay, x_position, y_position,
                        scale, rotation, steps, phase_shift,
                        keyframe1=None, keyframe2=None, keyframe3=None, keyframe4=None, keyframe5=None):
         """Provides animation parameters to the main GeekyRemB node"""
+        
+        # Calculate animation duration from frame_count and fps for compatibility
+        animation_duration = frame_count / fps if fps > 0 else 1.0
         
         # Check if keyframes are provided and should be used
         if use_keyframes:
@@ -128,8 +131,8 @@ class GeekyRemB_Animator:
                     "fps": fps,
                     "keyframes": keyframes,
                     "default_easing": easing_function,
-                    "duration": animation_duration,
-                    "total_frames": int(animation_duration * fps),
+                    "duration": animation_duration,  # Calculated from frame_count and fps
+                    "total_frames": frame_count,    # Use frame_count directly
                     # Add base values for interpolation reference
                     "base_position": (x_position, y_position),
                     "base_scale": scale,
@@ -144,7 +147,7 @@ class GeekyRemB_Animator:
                     rot = kf.get("rotation", 0.0)
                     logger.info(f"Keyframe {i}: frame={frame}, position={pos}, scale={scl}, rotation={rot}")
                 
-                logger.info(f"Using keyframe animation with {len(keyframes)} keyframes for {keyframe_params['total_frames']} total frames")
+                logger.info(f"Using keyframe animation with {len(keyframes)} keyframes for {frame_count} total frames")
                 return ({"animation_params": keyframe_params},)
         
         # If no keyframes or use_keyframes is False, use standard animation
@@ -152,7 +155,8 @@ class GeekyRemB_Animator:
             "output_format": output_format,
             "animation_type": animation_type,
             "animation_speed": animation_speed,
-            "animation_duration": animation_duration,
+            "frame_count": frame_count,         # Use frame_count directly
+            "animation_duration": animation_duration,  # Include for compatibility
             "repeats": repeats,
             "reverse": reverse,
             "easing_function": easing_function,
