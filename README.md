@@ -1,325 +1,505 @@
-# GeekyRemB: Advanced Background Removal & Image Processing Node for ComfyUI
+# GeekyRemB: Advanced Background Removal & Image Processing Node Suite for ComfyUI
 
-![GeekyRemB Demo Video](https://github.com/user-attachments/assets/3d37362c-2021-44e5-9810-4453262443fd)
-
-GeekyRemB is a sophisticated image processing node that brings professional-grade background removal, blending, and animation capabilities to ComfyUI. It combines AI-powered processing with traditional image manipulation techniques to offer a comprehensive solution for complex image processing tasks.
+GeekyRemB is a sophisticated image processing node suite that brings professional-grade background removal, blending, animation capabilities, and lighting effects to ComfyUI. It combines AI-powered processing with traditional image manipulation techniques to offer a comprehensive solution for complex image processing tasks.
 
 ## Table of Contents
-1. [User Guide](#user-guide)
-   - [Installation](#installation)
-   - [Features](#features)
-   - [Parameters Guide](#parameters-guide)
-     - [Essential Settings](#essential-settings)
-     - [Advanced Settings](#advanced-settings)
-     - [Optional Inputs](#optional-inputs)
-2. [Developer Documentation](#developer-documentation)
-   - [Technical Implementation](#technical-implementation)
-     - [Blend Mode System](#blend-mode-system)
-     - [Animation Engine](#animation-engine)
-     - [Background Removal](#background-removal)
-     - [Performance Optimizations](#performance-optimizations)
-     - [Error Handling](#error-handling)
-   - [Extending GeekyRemB](#extending-geekyremb)
-   - [Notable Technical Achievements](#notable-technical-achievements)
-3. [License](#license)
-4. [Acknowledgements](#acknowledgements)
+1. [Installation](#installation)
+2. [Node Overview](#node-overview)
+3. [Core Node: Geeky RemB](#core-node-geeky-remb)
+4. [Animation Node: Geeky RemB Animator](#animation-node-geeky-remb-animator)
+5. [Lighting & Shadow Node: Geeky RemB Light & Shadow](#lighting--shadow-node-geeky-remb-light--shadow)
+6. [Keyframe Position Node: Geeky RemB Keyframe Position](#keyframe-position-node-geeky-remb-keyframe-position)
+7. [Workflow Examples](#workflow-examples)
+8. [Advanced Features](#advanced-features)
+9. [Troubleshooting](#troubleshooting)
+10. [License](#license)
+11. [Acknowledgements](#acknowledgements)
 
 ---
 
-## User Guide
+## Installation
 
-### Installation
 1. **Install ComfyUI** if you haven't already. Follow the [ComfyUI installation guide](https://github.com/comfyanonymous/ComfyUI) for detailed instructions.
+
 2. **Clone the GeekyRemB repository** into your ComfyUI custom nodes directory:
    ```bash
-   git clone https://github.com/YourUsername/ComfyUI-GeekyRemB.git
+   cd ComfyUI/custom_nodes
+   git clone https://github.com/GeekyGhost/ComfyUI-GeekyRemB.git
    ```
+
 3. **Install dependencies**:
    ```bash
+   cd ComfyUI-GeekyRemB
    pip install -r requirements.txt
    ```
-4. **Restart ComfyUI** to load the new node.
 
-### Features
+4. **Restart ComfyUI** to load the new nodes.
 
-#### Background Removal
-- **AI-Powered Removal Using Multiple Models**:
-  - **u2net**: General-purpose, high-quality background removal.
-  - **u2netp**: Faster processing with slight quality trade-off.
-  - **u2net_human_seg**: Optimized for human subjects.
-  - **u2net_cloth_seg**: Specialized for clothing segmentation.
-  - **silueta**: Enhanced edge detection for finer details.
-  - **isnet-general-use**: Balanced performance for various subjects.
-  - **isnet-anime**: Optimized for anime and cartoon-style images.
-- **Professional Chroma Keying**:
-  - Supports multiple chroma key colors (green, blue, red).
-  - Adjustable tolerance for precise color selection.
-- **Advanced Alpha Matting**:
-  - Refines edges for seamless background removal.
-  - Controls for foreground and background thresholds.
+---
 
-#### Image Processing
-- **Professional Blend Modes**:
-  - **Normal**, **Multiply**, **Screen**, **Overlay**, **Soft Light**, **Hard Light**, **Difference**, **Exclusion**, **Color Dodge**, **Color Burn**, **Linear Light**, **Pin Light**, and more.
-  - Accurate alpha channel management ensuring proper transparency handling.
-- **Precise Mask Refinement Tools**:
-  - Thresholding, edge detection, mask expansion/erosion, blur, and small region removal.
-- **Support for Images of Different Dimensions**:
-  - Automatic scaling and aspect ratio adjustments.
-- **Automatic Alpha Channel Management**:
-  - Ensures consistent image formats across different operations.
+## Node Overview
 
-#### Animation
-- **Multiple Animation Types**:
-  - **Bounce**: Smooth up/down motion.
-  - **Travel Left/Right**: Linear horizontal movement.
-  - **Rotate**: Continuous rotation around the visible center.
-  - **Spiral**: Combines rotation with radial movement.
-  - **Fade In/Out**: Opacity transitions for gradual appearance/disappearance.
-  - **Zoom In/Out**: Scaling transitions for zoom effects.
-  - **Shake**: Quick oscillating movements for dynamic effects.
-  - **Slide Up/Down**: Vertical sliding motions.
-  - **Flip Horizontal/Vertical**: Mirroring effects.
-  - **Wave**: Sinusoidal vertical movement for a waving effect.
-  - **Pulse**: Periodic scaling for a pulsing effect.
-  - **Swing**: Oscillating rotation for a swinging motion.
-  - **Spin**: Continuous spinning around the center.
-  - **Flash**: Rapid brightness changes for flashing effects.
-- **Configurable Speed and Frame Count**:
-  - Control the tempo and smoothness of animations.
-- **Position, Scale, and Rotation Control**:
-  - Fine-tune the placement and transformation of animated elements.
-- **Advanced Animation Parameters**:
-  - **Steps**: Define multi-step animations for complex movements.
-  - **Phase Shift**: Staggered animations for dynamic compositions.
-- **Easing Functions**:
-  - **Linear**, **Ease In/Out Quad**, **Ease In/Out Cubic**, and more for smooth transitions.
+GeekyRemB consists of four interconnected nodes that work together to provide a complete image processing system:
+
+1. **Geeky RemB** - The core node handling background removal, mask processing, and composition
+2. **Geeky RemB Animator** - Provides animation parameters for creating dynamic sequences
+3. **Geeky RemB Light & Shadow** - Controls lighting effects and shadow generation
+4. **Geeky RemB Keyframe Position** - Enables precise control through keyframe-based animation
+
+These nodes can be used independently or connected together for advanced workflows.
+
+---
+
+## Core Node: Geeky RemB
+
+The main node responsible for background removal, image processing, and composition.
+
+### Key Features
+
+- **AI-Powered Background Removal**
+  - Multiple rembg models optimized for different subjects
+  - Professional chroma keying with color selection and tolerance control
+  
+- **Advanced Mask Processing**
+  - Mask expansion/contraction
+  - Edge detection and refinement
+  - Blur and threshold controls
+  - Small region removal
+  
+- **Image Composition**
+  - Position control for foreground elements
+  - Aspect ratio and scaling options
+  - Alpha channel management
+  
+- **Animation Support**
+  - Multi-frame processing
+  - Integration with animation and lighting nodes
+
+### Usage Instructions
+
+1. **Basic Background Removal**:
+   - Connect your input image to the `foreground` input
+   - Set `enable_background_removal` to true
+   - Choose your removal method (`rembg` or `chroma_key`)
+   - For `rembg`, select an appropriate model for your subject
+   - For `chroma_key`, select the key color and adjust tolerance
+   
+2. **Mask Refinement**:
+   - Use `mask_expansion` to grow or shrink the mask (positive values expand, negative contract)
+   - Enable `edge_detection` and adjust `edge_thickness` for sharper outlines
+   - Use `mask_blur` to smooth edges
+   - Enable `remove_small_regions` and set `small_region_size` to clean up noise
+   
+3. **Advanced Composition**:
+   - Connect a background image to the `background` input
+   - Set `x_position` and `y_position` to place the foreground
+   - Adjust `scale` to resize the foreground
+   - Specify `aspect_ratio` for consistent dimensions
+   
+4. **Using Alpha Matting**:
+   - Enable `alpha_matting` for high-quality edge refinement
+   - Adjust `alpha_matting_foreground_threshold` and `alpha_matting_background_threshold` for fine control
+   - Useful for subjects with fine details like hair or fur
+
+5. **Animation Setup**:
+   - Set `frames` to the desired number of output frames
+   - Connect an animator node to the `animator` input
+   - Connect a light & shadow node to the `lightshadow` input
+   - Connect keyframe nodes to the `keyframe` input for precise control
 
 ### Parameters Guide
 
-#### Essential Settings
-- **enable_background_removal**: Toggle background processing on or off.
-- **removal_method**: Choose between AI-based removal (`rembg`), color-based removal (`chroma_key`), or both.
-- **model**: Select the AI model for `rembg` method (e.g., `u2net`, `u2netp`, etc.).
-- **blend_mode**: Choose how foreground and background images are combined.
-- **opacity**: Control the strength of blending (0.0-1.0).
+#### Essential Parameters
+- **output_format**: Choose between RGBA (with transparency) or RGB output
+- **foreground**: The input image to process
+- **enable_background_removal**: Toggle background removal processing
+- **removal_method**: Choose between AI-based (`rembg`) or color-based (`chroma_key`)
+- **model**: Select AI model for the `rembg` method
+- **chroma_key_color**: Select the color to key out (`green`, `blue`, or `red`)
+- **chroma_key_tolerance**: Adjust sensitivity of color keying (0.0-1.0)
+- **spill_reduction**: Remove color spill from edges (0.0-1.0)
 
-#### Advanced Settings
-- **mask_expansion**: Fine-tune mask edges (-100 to 100) to expand or contract the mask.
-- **edge_detection**: Enable additional edge processing for sharper outlines.
-- **edge_thickness**: Set the thickness of detected edges (1-10).
-- **mask_blur**: Smooth mask edges to reduce harsh transitions (0-100).
-- **alpha_matting**: Enable sophisticated edge refinement using alpha matting.
-- **remove_small_regions**: Clean up mask artifacts by removing small regions.
-- **small_region_size**: Define the minimum size of regions to retain in the mask (1-1000).
-- **animation_type**: Select the type of animation to apply (e.g., `spin`, `fade_in`).
-- **animation_speed**: Control the speed of the animation (0.1-10.0).
-- **animation_duration**: Set the duration of one animation cycle (0.1-10.0 seconds).
-- **repeats**: Number of times the animation repeats (1-100).
-- **reverse**: Reverse the animation direction on every repeat.
-- **easing_function**: Choose the easing function for smooth transitions.
-- **delay**: Delay before the animation starts (0.0-5.0 seconds).
-- **animation_frames**: Total number of output frames for the animation (1-3000).
-- **x_position**: Initial horizontal position of the element (-1000 to 1000).
-- **y_position**: Initial vertical position of the element (-1000 to 1000).
-- **scale**: Scale factor for resizing the element (0.1-5.0).
-- **rotation**: Initial rotation angle of the element (-360 to 360 degrees).
-- **steps**: Number of steps in multi-step animations (1-10).
-- **phase_shift**: Phase shift for staggered animations (0.0-1.0).
+#### Mask Processing Parameters
+- **mask_expansion**: Expand or contract the mask (-100 to 100)
+- **edge_detection**: Enable edge detection for sharper outlines
+- **edge_thickness**: Control thickness of detected edges (1-10)
+- **mask_blur**: Apply blur to mask edges (0-100)
+- **threshold**: Set the threshold for mask generation (0.0-1.0)
+- **invert_generated_mask**: Invert the mask (switch foreground/background)
+- **remove_small_regions**: Remove small artifacts from the mask
+- **small_region_size**: Set minimum size of regions to keep (1-1000)
+
+#### Composition Parameters
+- **aspect_ratio**: Set output aspect ratio (e.g., "16:9", "4:3", "1:1", "portrait", "landscape")
+- **scale**: Scale the foreground (0.1-5.0)
+- **frames**: Number of frames to generate (1-1000)
+- **x_position**: Horizontal position of foreground (-2048 to 2048)
+- **y_position**: Vertical position of foreground (-2048 to 2048)
+
+#### Advanced Parameters
+- **alpha_matting**: Enable advanced edge refinement
+- **alpha_matting_foreground_threshold**: Threshold for foreground detection (0-255)
+- **alpha_matting_background_threshold**: Threshold for background detection (0-255)
+- **edge_refinement**: Enable additional edge refinement for chroma key
 
 #### Optional Inputs
-- **background**: Secondary image for composition behind the foreground.
-- **additional_mask**: Extra mask for complex selections and refinements.
-- **invert_additional_mask**: Invert the additional mask for varied effects.
+- **background**: Secondary image for background composition
+- **additional_mask**: Extra mask for complex selections
+- **invert_additional_mask**: Invert the additional mask
+- **animator**: Connection to GeekyRemB_Animator node
+- **lightshadow**: Connection to GeekyRemB_LightShadow node
+- **keyframe**: Connection to GeekyRemB_KeyframePosition node
 
 ---
 
-## Developer Documentation
+## Animation Node: Geeky RemB Animator
 
-### Technical Implementation
+Provides animation parameters to the main GeekyRemB node, controlling movement, transitions, and timing.
 
-#### Blend Mode System
-GeekyRemB features a sophisticated blending engine that handles complex image compositions with precision and efficiency.
+### Key Features
 
-```python
-class EnhancedBlendMode:
-    @staticmethod
-    def _ensure_rgba(img: np.ndarray) -> np.ndarray:
-        # Ensures the image has an alpha channel
-        ...
+- **Multiple Animation Types**:
+  - Movement animations (bounce, travel, slide)
+  - Transform animations (scale, rotate, flip)
+  - Opacity animations (fade in/out)
+  - Special effects (shake, wave, pulse)
+  
+- **Animation Control**:
+  - Speed and duration settings
+  - Repeat and reverse options
+  - Easing functions for natural motion
+  
+- **Keyframe Support**:
+  - Integration with keyframe position nodes
+  - Frame-accurate positioning
 
-    @staticmethod
-    def _apply_blend(target: np.ndarray, blend: np.ndarray, operation, opacity: float = 1.0) -> np.ndarray:
-        # Core blending logic with alpha handling
-        ...
+### Usage Instructions
 
-    @classmethod
-    def get_blend_modes(cls) -> Dict[str, Callable]:
-        # Returns a dictionary of available blend modes
-        ...
+1. **Basic Animation Setup**:
+   - Add the Geeky RemB Animator node to your workflow
+   - Select the desired `animation_type`
+   - Set `animation_speed` and `animation_duration`
+   - Connect the node's output to the main GeekyRemB node's `animator` input
+   
+2. **Animation Timing**:
+   - Set `fps` to control the smoothness of animation
+   - Adjust `repeats` to loop the animation
+   - Enable `reverse` to alternate direction on repeats
+   - Set `delay` to postpone the start of animation
+   
+3. **Motion Control**:
+   - Set the initial position with `x_position` and `y_position`
+   - Adjust `scale` and `rotation` for the starting state
+   - Use `steps` to create multi-step animations
+   - Set `phase_shift` for staggered animations
+   
+4. **Keyframe Animation**:
+   - Enable `use_keyframes` to use keyframe-based animation
+   - Connect keyframe position nodes to the `keyframe1` through `keyframe5` inputs
+   - Set `easing_function` to control the interpolation between keyframes
 
-    @staticmethod
-    def multiply(target: np.ndarray, blend: np.ndarray, opacity: float = 1.0) -> np.ndarray:
-        # Implementation of Multiply blend mode
-        ...
-```
+### Parameters Guide
 
-**Key Features**:
-- **Proper Alpha Channel Management**: Ensures all images have an alpha channel for consistent blending.
-- **Automatic Dimension Handling**: Automatically adjusts image dimensions to match during blending operations.
-- **Memory-Efficient Processing**: Utilizes optimized numpy operations for fast and efficient blending.
-- **Numerical Precision Optimization**: Maintains high precision in color computations to prevent artifacts.
+#### Animation Type
+- **animation_type**: Choose from various animation types:
+  - `none`: No animation
+  - `bounce`: Up and down movement
+  - `travel_left`/`travel_right`: Horizontal movement
+  - `rotate`: Continuous rotation
+  - `fade_in`/`fade_out`: Opacity transitions
+  - `zoom_in`/`zoom_out`: Scale transitions
+  - `scale_bounce`: Pulsing size changes
+  - `spiral`: Combined rotation and movement
+  - `shake`: Quick oscillating movements
+  - `slide_up`/`slide_down`: Vertical movement
+  - `flip_horizontal`/`flip_vertical`: Mirroring effects
+  - `wave`: Sinusoidal movement
+  - `pulse`: Periodic scaling
+  - `swing`: Pendulum-like rotation
+  - `spin`: Continuous spinning
+  - `flash`: Brightness fluctuation
 
-#### Animation Engine
-The animation system provides smooth, configurable motion for dynamic image compositions.
+#### Timing Controls
+- **animation_speed**: Rate of animation (0.1-10.0)
+- **animation_duration**: Length of one animation cycle (0.1-10.0)
+- **repeats**: Number of times to repeat the animation (1-10)
+- **reverse**: Toggle direction reversal on repeats
+- **fps**: Frames per second (1-120)
+- **delay**: Wait time before animation starts (0.0-5.0)
 
-```python
-class EnhancedAnimator:
-    @staticmethod
-    def animate_element(
-        element: Image.Image,
-        animation_type: str,
-        animation_speed: float,
-        frame_number: int,
-        total_frames: int,
-        x_start: int,
-        y_start: int,
-        canvas_width: int,
-        canvas_height: int,
-        scale: float,
-        rotation: float,
-        easing_func: Callable[[float], float],
-        repeat: int,
-        reverse: bool,
-        delay: float,
-        steps: int = 1,
-        phase_shift: float = 0.0
-    ) -> Tuple[Image.Image, int, int]:
-        # Generates precise frame-by-frame animations
-        ...
-```
+#### Motion Parameters
+- **x_position**: Initial horizontal position (-1000 to 1000)
+- **y_position**: Initial vertical position (-1000 to 1000)
+- **scale**: Initial scale factor (0.1-5.0)
+- **rotation**: Initial rotation angle (-360.0 to 360.0)
+- **steps**: Number of steps in multi-step animations (1-10)
+- **phase_shift**: Phase shift for staggered animations (0.0-1.0)
 
-**Features**:
-- **Frame-Accurate Positioning**: Ensures that elements move precisely as per frame calculations.
-- **Sub-Pixel Interpolation**: Handles smooth transitions and movements at sub-pixel levels.
-- **Memory Pooling for Frame Sequences**: Efficiently manages memory when handling multiple frames.
-- **Automatic Boundary Handling**: Prevents elements from moving out of the canvas boundaries.
+#### Easing Functions
+- **easing_function**: Controls how animations accelerate/decelerate:
+  - `linear`: Constant speed
+  - `ease_in_quad`/`ease_out_quad`/`ease_in_out_quad`: Quadratic easing
+  - `ease_in_cubic`/`ease_out_cubic`/`ease_in_out_cubic`: Cubic easing
+  - `ease_in_sine`/`ease_out_sine`/`ease_in_out_sine`: Sinusoidal easing
+  - `ease_in_expo`/`ease_out_expo`/`ease_in_out_expo`: Exponential easing
+  - `ease_in_bounce`/`ease_out_bounce`/`ease_in_out_bounce`: Bouncy easing
 
-#### Background Removal
-GeekyRemB supports multiple background removal strategies with sophisticated refinement techniques.
+#### Keyframe Controls
+- **use_keyframes**: Enable keyframe-based animation
+- **keyframe1** through **keyframe5**: Connect to keyframe position nodes
 
-```python
-class EnhancedGeekyRemB:
-    def remove_background_rembg(self, image: Image.Image) -> Tuple[Image.Image, Image.Image]:
-        # AI-powered background removal using rembg
-        ...
+---
 
-    def remove_background_chroma(self, image: Image.Image) -> Tuple[Image.Image, Image.Image]:
-        # Color-based background removal using chroma key
-        ...
-```
+## Lighting & Shadow Node: Geeky RemB Light & Shadow
 
-**Highlights**:
-- **Model-Specific Optimizations**: Different AI models are optimized for various types of subjects and use cases.
-- **GPU Acceleration**: Leverages available GPU resources for faster processing.
-- **Advanced Edge Detection**: Refines edges to ensure seamless background removal.
-- **Artifact Reduction**: Minimizes visual artifacts through mask refinement and blending techniques.
+Controls lighting effects and shadow generation for the processed images.
 
-#### Performance Optimizations
-GeekyRemB incorporates several performance enhancements to ensure efficient processing:
+### Key Features
 
-- **ThreadPoolExecutor for Parallel Processing**: Utilizes multi-threading to handle multiple frames concurrently.
-- **Efficient Numpy Operations**: Employs optimized numpy functions for fast numerical computations.
-- **Smart Caching System**: Implements an LRU (Least Recently Used) cache to store and reuse processed frames, reducing redundant computations.
-- **Memory Management Optimizations**: Ensures that memory usage is kept optimal, preventing leaks and overconsumption.
+- **Realistic Lighting Effects**:
+  - Directional lighting with intensity control
+  - Light color and falloff adjustment
+  - Normal mapping for 3D-like lighting
+  - Specular highlights for reflective surfaces
+  
+- **Dynamic Shadow Generation**:
+  - Shadow opacity and blur control
+  - Shadow direction and color customization
+  - Perspective shadows for realism
+  - Distance-based shadow fading
 
-#### Error Handling
-Robust error management is implemented throughout GeekyRemB to ensure reliability:
+### Usage Instructions
 
-```python
-try:
-    result = self.process_frame(frame, background)
-except Exception as e:
-    logger.error(f"Processing error: {str(e)}")
-    return self.fallback_process(frame)
-```
+1. **Basic Lighting Setup**:
+   - Add the Geeky RemB Light & Shadow node to your workflow
+   - Enable `enable_lighting` to activate lighting effects
+   - Adjust `light_intensity` to control strength
+   - Set `light_direction_x` and `light_direction_y` to position the light source
+   - Connect the node's output to the main GeekyRemB node's `lightshadow` input
+   
+2. **Light Customization**:
+   - Choose between RGB color control or Kelvin temperature
+   - Enable `use_kelvin_temperature` and set `kelvin_temperature` for natural lighting
+   - Or adjust `light_color_r`, `light_color_g`, and `light_color_b` for custom colors
+   - Set `light_radius` and `light_falloff` to control illumination area
+   
+3. **Advanced Lighting**:
+   - Enable `enable_normal_mapping` for 3D-like lighting effects
+   - Turn on `enable_specular` and adjust `specular_intensity` for highlights
+   - Set `specular_shininess` to control highlight sharpness
+   - Adjust `ambient_light` for global illumination level
+   
+4. **Shadow Configuration**:
+   - Enable `enable_shadow` to activate shadow generation
+   - Set `shadow_opacity` and `shadow_blur` for shadow appearance
+   - Adjust `shadow_direction_x` and `shadow_direction_y` for shadow placement
+   - Customize `shadow_color_r`, `shadow_color_g`, and `shadow_color_b`
+   
+5. **Realistic Shadows**:
+   - Enable `perspective_shadow` for distance-based perspective effects
+   - Set `light_source_height` to control shadow length
+   - Turn on `distance_fade` and adjust `fade_distance` for natural fading
+   - Toggle `soft_edges` for realistic shadow edges
 
-**Features**:
-- **Comprehensive Logging**: Errors are logged with detailed messages to aid in debugging.
-- **Graceful Degradation**: In case of failures, the system falls back to safe defaults to maintain operation.
-- **Input Validation**: Ensures that all inputs are validated before processing to prevent unexpected errors.
+### Parameters Guide
 
-### Extending GeekyRemB
+#### Lighting Controls
+- **enable_lighting**: Toggle lighting effects
+- **light_intensity**: Strength of lighting effect (0.0-1.0)
+- **light_direction_x**: Horizontal light direction (-200 to 200)
+- **light_direction_y**: Vertical light direction (-200 to 200)
+- **light_radius**: Area of light effect (10-500)
+- **light_falloff**: Rate of light falloff (0.1-3.0)
+- **light_from_behind**: Toggle backlighting effect
 
-Developers can enhance and expand GeekyRemB by adding new features, optimizing existing ones, or integrating additional functionalities. Below are guidelines and best practices to assist in development:
+#### Light Color
+- **use_kelvin_temperature**: Use color temperature instead of RGB
+- **kelvin_temperature**: Light color temperature (2000-10000K)
+- **light_color_r/g/b**: RGB components of light color (0-255)
 
-#### Adding New Animation Types
-To introduce a new animation type:
+#### Advanced Lighting
+- **enable_normal_mapping**: Enable 3D-like lighting effects
+- **enable_specular**: Add specular highlights
+- **specular_intensity**: Strength of highlights (0.0-1.0)
+- **specular_shininess**: Sharpness of highlights (1-128)
+- **ambient_light**: Global illumination level (0.0-1.0)
+- **light_source_height**: Height of light source (50-500)
 
-1. **Define the Animation in the `AnimationType` Enum**:
-   ```python
-   class AnimationType(Enum):
-       NEW_ANIMATION = "new_animation"
-       # Existing animations...
-   ```
+#### Shadow Controls
+- **enable_shadow**: Toggle shadow generation
+- **shadow_opacity**: Shadow transparency (0.0-1.0)
+- **shadow_blur**: Shadow edge softness (0-50)
+- **shadow_direction_x**: Horizontal shadow offset (-50 to 50)
+- **shadow_direction_y**: Vertical shadow offset (-50 to 50)
+- **shadow_expansion**: Shadow size adjustment (-10 to 20)
+- **shadow_color_r/g/b**: RGB components of shadow color (0-255)
 
-2. **Implement the Animation Logic in `EnhancedAnimator.animate_element`**:
-   ```python
-   elif animation_type == AnimationType.NEW_ANIMATION.value:
-       # Define how the element should animate
-       x += int(math.sin(progress * math.pi) * amplitude)
-       y += int(math.cos(progress * math.pi) * amplitude)
-       # Any additional transformations
-   ```
+#### Advanced Shadow
+- **perspective_shadow**: Enable perspective-based shadows
+- **distance_fade**: Fade shadow with distance
+- **fade_distance**: Distance at which shadow begins to fade (10-500)
+- **soft_edges**: Toggle soft shadow edges
 
-3. **Update the `INPUT_TYPES` to Include the New Animation**:
-   ```python
-   "animation_type": ([anim.value for anim in AnimationType],),
-   ```
+---
 
-4. **Document the New Animation** in the User Guide under the Features and Parameters Guide sections.
+## Keyframe Position Node: Geeky RemB Keyframe Position
 
-#### Optimizing Blend Modes
-To add or optimize a blend mode:
+Provides precise control over animation through keyframe-based positioning.
 
-1. **Implement the Blend Mode Function** in `EnhancedBlendMode`:
-   ```python
-   @staticmethod
-   def new_blend_mode(target: np.ndarray, blend: np.ndarray, opacity: float = 1.0) -> np.ndarray:
-       # Define the blend operation
-       def blend_op(t, b):
-           return (t + b) / 2  # Example operation
-       return EnhancedBlendMode._apply_blend(target, blend, blend_op, opacity)
-   ```
+### Key Features
 
-2. **Register the Blend Mode** in the `get_blend_modes` method:
-   ```python
-   @classmethod
-   def get_blend_modes(cls) -> Dict[str, Callable]:
-       return {
-           "new_blend_mode": cls.new_blend_mode,
-           # Existing blend modes...
-       }
-   ```
+- **Frame-Specific Controls**:
+  - Position, scale, and rotation settings for specific frames
+  - Opacity control for visibility transitions
+  - Easing function selection for smooth interpolation
 
-3. **Update the `INPUT_TYPES`** to include the new blend mode option.
+### Usage Instructions
 
-4. **Document the Blend Mode** in the User Guide.
+1. **Creating Keyframes**:
+   - Add the Geeky RemB Keyframe Position node to your workflow
+   - Set `frame_number` to the target frame
+   - Adjust `x_position` and `y_position` for placement
+   - Set `scale` and `rotation` as needed
+   - Connect multiple keyframe nodes to the Animator's keyframe inputs
+   
+2. **Keyframe Configuration**:
+   - Define the canvas size with `width` and `height`
+   - Set `opacity` for transparency control
+   - Select an `easing` function for interpolation between keyframes
+   
+3. **Building Keyframe Sequences**:
+   - Create multiple keyframe nodes with different frame numbers
+   - Connect them to consecutive keyframe inputs on the Animator node
+   - Enable `use_keyframes` on the Animator node
 
-#### Enhancing Mask Processing
-To improve mask refinement techniques:
+### Parameters Guide
 
-1. **Modify the `EnhancedMaskProcessor.refine_mask` Method** to include new processing steps.
-2. **Add Configuration Options** in `ProcessingConfig` for any new parameters.
-3. **Ensure Thread-Safety** and **Optimize Performance** when adding new operations.
+#### Canvas Settings
+- **width**: Width of the animation canvas (64-4096)
+- **height**: Height of the animation canvas (64-4096)
 
-### Notable Technical Achievements
-1. **Seamless Handling of Images with Different Dimensions**: Automatically adjusts images to ensure compatibility during processing and blending.
-2. **Professional-Grade Blend Modes Matching Industry Standards**: Implements a wide range of blend modes with accurate color and transparency handling.
-3. **Efficient Batch Processing with Memory Optimization**: Utilizes multi-threading and caching to process multiple frames efficiently.
-4. **Sophisticated Alpha Channel Management**: Maintains high-quality transparency handling across all operations.
-5. **Frame-Accurate Animation System**: Ensures that animations are smooth and precisely timed across all frames.
-6. **Robust Error Recovery Mechanisms**: Implements comprehensive error handling to maintain reliability during processing.
+#### Keyframe Controls
+- **frame_number**: Target frame for this keyframe (0-1000)
+- **x_position**: Horizontal position at this keyframe (-2048 to 2048)
+- **y_position**: Vertical position at this keyframe (-2048 to 2048)
+- **scale**: Scale factor at this keyframe (0.1-5.0)
+- **rotation**: Rotation angle at this keyframe (-360.0 to 360.0)
+- **opacity**: Transparency at this keyframe (0.0-1.0)
+
+#### Interpolation
+- **easing**: Easing function for interpolation to the next keyframe
+  - Options match the easing functions available in the Animator node
+
+---
+
+## Workflow Examples
+
+### Basic Background Removal
+
+1. Connect an image source to Geeky RemB's `foreground` input
+2. Set `enable_background_removal` to true
+3. Choose `rembg` as the removal method
+4. Select an appropriate model (e.g., `u2net` for general purposes, `isnet-anime` for anime images)
+5. Adjust mask processing parameters as needed
+6. Connect the output to your workflow
+
+### Animated Character with Lighting
+
+1. Add a Geeky RemB Animator node
+   - Set `animation_type` to `bounce`
+   - Set `animation_speed` to 1.0
+   - Set `repeats` to 2
+   - Set `easing_function` to `ease_in_out_sine`
+
+2. Add a Geeky RemB Light & Shadow node
+   - Enable `enable_lighting` and `enable_shadow`
+   - Set `light_direction_x` to -50 and `light_direction_y` to -100
+   - Set `shadow_opacity` to 0.4
+   - Set `shadow_blur` to 15
+
+3. Connect both to a Geeky RemB node
+   - Connect your character image to `foreground`
+   - Connect a background image to `background`
+   - Set `frames` to 30
+   - Set `enable_background_removal` to true
+
+### Keyframe Animation Sequence
+
+1. Create multiple Geeky RemB Keyframe Position nodes:
+   - Keyframe 1: `frame_number`: 0, `x_position`: 0, `y_position`: 0
+   - Keyframe 2: `frame_number`: 15, `x_position`: 200, `y_position`: -50, `rotation`: 45
+   - Keyframe 3: `frame_number`: 30, `x_position`: 400, `y_position`: 0, `rotation`: 0
+
+2. Add a Geeky RemB Animator node:
+   - Set `use_keyframes` to true
+   - Connect the keyframe nodes to `keyframe1`, `keyframe2`, and `keyframe3`
+   - Set `fps` to 30
+
+3. Connect to a Geeky RemB node:
+   - Set `frames` to 30
+   - Set other parameters as needed
+
+---
+
+## Advanced Features
+
+### Multi-frame Processing with Thread Pooling
+
+GeekyRemB optimizes performance by using thread pools to process multiple frames in parallel. This makes it efficient for handling animations and batch processing.
+
+### Sophisticated Caching System
+
+An LRU (Least Recently Used) cache system is implemented to store and reuse processed frames, reducing redundant computations and improving performance.
+
+### Edge Refinement Techniques
+
+Multiple edge processing methods are available, including alpha matting, edge detection, and mask refinement, enabling high-quality results even with complex subjects.
+
+### Perspective Shadow Generation
+
+The shadow system can create realistic perspective-based shadows that simulate the effect of a 3D light source, adding depth to compositions.
+
+### Normal Mapping for 3D-like Lighting
+
+Advanced lighting effects include normal mapping, which simulates surface details for more realistic illumination without requiring actual 3D models.
+
+---
+
+## Troubleshooting
+
+### Common Issues and Solutions
+
+1. **Slow Background Removal**
+   - Try using a lighter model like `u2netp` instead of `u2net`
+   - Reduce the image size before processing
+   - Ensure GPU acceleration is available and enabled
+
+2. **Poor Edge Quality**
+   - Enable `alpha_matting` for better edge refinement
+   - Adjust `mask_blur` for smoother edges
+   - Try different `mask_expansion` values
+
+3. **Memory Issues with Animation**
+   - Reduce the number of frames
+   - Lower the resolution of input images
+   - Close other memory-intensive applications
+
+4. **Missing Shadow or Light Effects**
+   - Verify that both `enable_lighting` and `enable_shadow` are turned on
+   - Check that the Light & Shadow node is connected to the main node
+   - Adjust direction values to ensure effects are visible
+
+5. **Keyframes Not Working**
+   - Confirm that `use_keyframes` is enabled on the Animator node
+   - Check that keyframe nodes are connected in the correct order
+   - Verify that frame numbers are set correctly and within range
+
+### Performance Optimization
+
+- Use the appropriate rembg model for your needs - lighter models like `u2netp` are faster
+- For batch processing, set a reasonable number of frames to avoid memory issues
+- Adjust thread count if needed by modifying the `max_workers` value in the code
+- Pre-process images to reduce resolution before applying effects
 
 ---
 
@@ -335,19 +515,16 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 GeekyRemB builds upon several outstanding open-source projects:
 
-- [Rembg](https://github.com/danielgatis/rembg) by Daniel Gatis: Core background removal capabilities.
-- [ComfyUI](https://github.com/comfyanonymous/ComfyUI): The foundation of our node system.
-- [WAS Node Suite](https://github.com/WASasquatch/was-node-suite-comfyui): Inspiration for layer utility features.
+- [Rembg](https://github.com/danielgatis/rembg) by Daniel Gatis: Core background removal capabilities
+- [ComfyUI](https://github.com/comfyanonymous/ComfyUI): The foundation of our node system
+- [WAS Node Suite](https://github.com/WASasquatch/was-node-suite-comfyui): Inspiration for layer utility features
 
 Special thanks to:
 
-- **The ComfyUI Community**: For valuable feedback and suggestions.
-- **Open-Source Contributors**: Who help improve the node continuously.
-- **AI Model Creators**: Whose work enables our advanced background removal features.
+- **The ComfyUI Community**: For valuable feedback and suggestions
+- **Open-Source Contributors**: Who help improve the nodes continuously
+- **AI Model Creators**: Whose work enables our advanced background removal features
 
 ---
 
-For updates, issues, or contributions, please visit the [GitHub repository](https://github.com/YourUsername/ComfyUI-GeekyRemB). We welcome feedback and contributions from the community.
-
----
-
+For updates, issues, or contributions, please visit the [GitHub repository](https://github.com/GeekyGhost/ComfyUI-GeekyRemB). We welcome feedback and contributions from the community.
