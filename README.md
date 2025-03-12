@@ -2,6 +2,9 @@
 
 GeekyRemB is a sophisticated image processing node suite that brings professional-grade background removal, blending, animation capabilities, and lighting effects to ComfyUI. It combines AI-powered processing with traditional image manipulation techniques to offer a comprehensive solution for complex image processing tasks.
 
+<img width="1139" alt="Screenshot 2025-03-12 070830" src="https://github.com/user-attachments/assets/dc6dd79c-b661-4c6c-91fc-af2780a4a967" />
+
+
 ## Table of Contents
 1. [Installation](#installation)
 2. [Node Overview](#node-overview)
