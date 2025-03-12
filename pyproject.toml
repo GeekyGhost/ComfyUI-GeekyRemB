@@ -1,9 +1,21 @@
 [project]
 name = "comfyui-geekyremb"
-description = "GeekyRemB is a powerful and versatile image processing node for ComfyUI, designed to remove backgrounds from images with advanced customization options. This node leverages the rembg library and offers a wide range of features for fine-tuning the background removal process and enhancing the resulting images."
+description = "GeekyRemB is a powerful suite of image processing nodes for ComfyUI, offering advanced background removal, animation, lighting effects, and keyframe-based positioning. Built on the rembg library with additional capabilities for chroma keying, mask refinement, realistic lighting, shadow generation, and dynamic animations."
 version = "1.0.0"
 license = {file = "LICENSE"}
-dependencies = ["numpy", "rembg", "Pillow", "torch", "opencv-python", "tqdm"]
+dependencies = [
+    "numpy",
+    "rembg",
+    "Pillow",
+    "torch",
+    "opencv-python",
+    "tqdm",
+    "huggingface-hub",
+    "scikit-image",
+    "scipy",
+    "onnxruntime-gpu",  # For GPU support
+    "transformers"
+]
 
 [project.urls]
 Repository = "https://github.com/GeekyGhost/ComfyUI-GeekyRemB"
