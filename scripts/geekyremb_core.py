@@ -192,6 +192,11 @@ class GeekyRemB:
     def process_frame(self, frame: Image.Image, background_frame: Optional[Image.Image], x_pos: int = 0, y_pos: int = 0) -> Tuple[Image.Image, Image.Image]:
         """Process a single frame for background removal"""
         try:
+            logger.info(f"Processing frame with background: {background_frame is not None}")
+            if background_frame:
+                logger.info(f"Background frame size: {background_frame.size}")
+            logger.info(f"Foreground frame size: {frame.size}")
+            
             if isinstance(frame, np.ndarray):
                 frame = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
@@ -280,10 +285,29 @@ class GeekyRemB:
             
             # Handle background composition if provided and shadow is not enabled
             elif background_frame is not None:
+                # Make sure the background frame is ready for composition
                 bg = background_frame.convert('RGBA')
-                result = Image.new('RGBA', bg.size, (0, 0, 0, 0))
-                result.paste(bg, (0, 0))
-                result.paste(frame, (x_pos, y_pos), frame)
+                
+                # Create a new canvas with the appropriate size
+                if bg.size != frame.size:
+                    # If sizes differ, create a canvas with background size
+                    result = Image.new('RGBA', bg.size, (0, 0, 0, 0))
+                    # Place the background first
+                    result.paste(bg, (0, 0))
+                    
+                    # Calculate center position if not provided
+                    if x_pos == 0 and y_pos == 0:
+                        x_pos = (bg.width - frame.width) // 2
+                        y_pos = (bg.height - frame.height) // 2
+                        
+                    # Place the foreground on top
+                    result.paste(frame, (x_pos, y_pos), frame)
+                else:
+                    # If sizes match, create a canvas with that size
+                    result = Image.new('RGBA', frame.size, (0, 0, 0, 0))
+                    result.paste(bg, (0, 0))
+                    result.paste(frame, (x_pos, y_pos), frame)
+                
                 frame = result
 
             return frame, mask
@@ -371,6 +395,13 @@ class GeekyRemB:
                      aspect_ratio, scale, frames, x_position, y_position, background=None, additional_mask=None, 
                      invert_additional_mask=False, animator=None, lightshadow=None, keyframe=None):
         try:
+            # Debug logging for input parameters
+            logger.info(f"Foreground batch size: {foreground.shape[0]}")
+            if background is not None:
+                logger.info(f"Background batch size: {background.shape[0]}")
+            else:
+                logger.info("No background provided")
+                
             # Update configuration
             self.config.enable_background_removal = enable_background_removal
             self.config.removal_method = removal_method
@@ -449,6 +480,13 @@ class GeekyRemB:
             # Convert inputs to PIL images
             fg_frames = [tensor2pil(foreground[i]) for i in range(foreground.shape[0])]
             bg_frames = [tensor2pil(background[i]) for i in range(background.shape[0])] if background is not None else None
+
+            # After converting to PIL images - debug logging
+            logger.info(f"Number of foreground frames: {len(fg_frames)}")
+            if bg_frames:
+                logger.info(f"Number of background frames: {len(bg_frames)}")
+                logger.info(f"First background frame size: {bg_frames[0].size}")
+            logger.info(f"First foreground frame size: {fg_frames[0].size}")
 
             # Parse and apply aspect ratio if specified
             aspect_ratio_value = parse_aspect_ratio(aspect_ratio)
@@ -536,10 +574,15 @@ class GeekyRemB:
                 processed_frames = []
                 masks = []
                 
-                # If background provided but not enough frames, extend it to match animation frames
-                if bg_frames and len(bg_frames) < animation_frames:
-                    bg_frames = bg_frames * (animation_frames // len(bg_frames) + 1)
-                    bg_frames = bg_frames[:animation_frames]
+                # Handle background frames for animation
+                if bg_frames:
+                    if len(bg_frames) == 1:
+                        # If only one background frame, replicate it for all frames
+                        bg_frames = [bg_frames[0]] * animation_frames
+                    elif len(bg_frames) < animation_frames:
+                        # If not enough background frames, extend by repeating
+                        bg_frames = bg_frames * (animation_frames // len(bg_frames) + 1)
+                        bg_frames = bg_frames[:animation_frames]
                 
                 # Process each frame with background removal and lighting effects, but NOT shadow or background compositing
                 with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
@@ -556,8 +599,8 @@ class GeekyRemB:
                     for i, future in enumerate(tqdm(futures, desc="Processing foregrounds")):
                         try:
                             result_frame, mask = future.result()
-                        
-                            # Handle additional mask if provided
+
+                # Handle additional mask if provided
                             if additional_mask is not None:
                                 additional_mask_pil = tensor2pil(
                                     additional_mask[i % len(additional_mask)]
@@ -731,8 +774,18 @@ class GeekyRemB:
                 with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                     futures = []
                     for i in range(len(fg_frames)):
-                        bg_frame = bg_frames[i] if bg_frames and i < len(bg_frames) else None
-                    
+                        # Modified background handling logic
+                        if bg_frames:
+                            # If we have only one background frame but multiple foreground frames,
+                            # reuse the same background for all foreground frames
+                            if len(bg_frames) == 1 and len(fg_frames) > 1:
+                                bg_frame = bg_frames[0]
+                            else:
+                                # Otherwise use the corresponding frame if available
+                                bg_frame = bg_frames[i] if i < len(bg_frames) else None
+                        else:
+                            bg_frame = None
+                        
                         future = executor.submit(
                             self.process_frame,
                             fg_frames[i],
