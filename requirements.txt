@@ -9,4 +9,4 @@ tqdm
 huggingface-hub
 scikit-image
 scipy
-onnxruntime-gpu  # For GPU support, use onnxruntime if no GPU
+onnxruntime-gpu 
