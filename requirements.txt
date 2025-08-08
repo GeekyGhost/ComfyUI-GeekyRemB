@@ -1,12 +1,70 @@
-numpy
-opencv-python
-torch
-torchvision
-Pillow
-rembg
-transformers
-tqdm
-huggingface-hub
-scikit-image
-scipy
-onnxruntime-gpu 
+# GeekyRemB v4.0 Requirements
+# =============================
+
+# Core dependencies
+numpy>=1.24.0
+torch>=2.0.0
+torchvision>=0.15.0
+Pillow>=10.0.0
+
+# Computer Vision
+opencv-python>=4.8.0
+scikit-image>=0.21.0
+scipy>=1.11.0
+
+# Background Removal - Latest Models
+rembg>=2.0.57
+onnxruntime>=1.16.0
+
+# GPU Acceleration (uncomment if using GPU)
+onnxruntime-gpu>=1.16.0
+
+# Image Processing Advanced
+kornia>=0.7.0  # Advanced computer vision operations
+albumentations>=1.3.0  # Image augmentation library
+
+# AI Model Integration
+transformers>=4.35.0
+huggingface-hub>=0.17.0
+
+# Performance and Utilities  
+tqdm>=4.66.0
+requests>=2.31.0
+psutil>=5.9.0  # Memory monitoring
+
+# Data Handling
+dataclasses-json>=0.6.0  # Enhanced dataclass support
+
+# Optional: Enhanced Features
+# matplotlib>=3.8.0  # For debugging visualizations
+# imageio>=2.31.0    # Additional image I/O formats
+# ffmpeg-python>=0.2.0  # Video processing
+# tensorboard>=2.14.0   # Training visualization
+
+# Development Dependencies (uncomment for development)
+# pytest>=7.4.0
+# black>=23.0.0  # Code formatting  
+# flake8>=6.0.0  # Code linting
+# mypy>=1.6.0   # Type checking
+
+# Platform-specific optimizations
+# Intel processors:
+# intel-extension-for-pytorch>=2.0.0
+
+# AMD ROCm support:
+# torch-audio-rocm>=2.0.0
+
+# Apple Silicon optimization:
+# torch-audio>=2.0.0
+
+# Additional AI Models (optional)
+# segment-anything>=1.0
+# detectron2>=0.6  # Object detection
+# timm>=0.9.0      # Vision models
+
+# Note: Some packages may require specific versions based on your system
+# For best compatibility, use virtual environments:
+# python -m venv geeky_remb_env
+# source geeky_remb_env/bin/activate  # Linux/Mac  
+# geeky_remb_env\Scripts\activate     # Windows
+# pip install -r requirements.txt
